@@ -1,9 +1,13 @@
 import type { DocState, GroupLayer, Layer, LayerMask } from '../doc/types';
 import {
   intersectRects,
+  invertAffine,
   isEmptyRect,
+  roundOutRect,
   tileRect,
+  transformedBounds,
   unionRects,
+  type Affine,
   type Rect,
 } from '../geometry';
 import type { GPU } from '../gl/gpu';
@@ -17,12 +21,39 @@ import { copyProgram, layerBlendProgram, layerOverProgram, mixProgram } from './
 /** A texture positioned in document space that can be drawn like a layer. */
 export interface DrawSource {
   texture: WebGLTexture;
-  /** Document position of texel (0, 0). */
+  /** Document position of texel (0, 0) (ignored when `transform` is set). */
   x: number;
   y: number;
   /** Extent of valid texels. */
   width: number;
   height: number;
+  /** Optional affine mapping source pixel coords → document coords (live transform previews). */
+  transform?: Affine;
+  /** Optional affine for the layer's mask (mask pixel coords → document coords). */
+  maskTransform?: Affine;
+}
+
+/** Column-major mat3 for an affine transform. */
+export function affineToMat3(m: Affine): Float32Array {
+  return new Float32Array([m.a, m.b, 0, m.c, m.d, 0, m.e, m.f, 1]);
+}
+
+/** Sets the source-sampling uniforms (see shaders/sampling.ts) for a draw source. */
+export function setSourceUniforms(program: Program, source: DrawSource): void {
+  program.int('u_src', 0).vec2('u_srcSize', source.width, source.height).vec4('u_outside', 0, 0, 0, 0);
+  if (source.transform) {
+    const inv = invertAffine(source.transform);
+    if (inv) program.mat3('u_inv', affineToMat3(inv));
+  } else {
+    program.vec2('u_srcOrigin', source.x, source.y);
+  }
+}
+
+/** Document-space bounds covered by a draw source. */
+export function sourceBounds(source: DrawSource): Rect {
+  const local = { x: 0, y: 0, width: source.width, height: source.height };
+  if (source.transform) return roundOutRect(transformedBounds(source.transform, local));
+  return { x: source.x, y: source.y, width: source.width, height: source.height };
 }
 
 /**
@@ -36,7 +67,10 @@ interface Accum {
 
 /** Hooks that let tools substitute what gets drawn for a layer (live previews). */
 export interface LayerSourceProvider {
-  /** Returns a replacement draw source for a layer, or undefined to use the default. */
+  /**
+   * Returns a replacement draw source for a layer, null to skip drawing it, or
+   * undefined to use the default.
+   */
   sourceFor?(layer: Layer): DrawSource | null | undefined;
 }
 
@@ -54,7 +88,8 @@ export class Compositor {
   private dirty: Rect | null = null;
   private width = 0;
   private height = 0;
-  provider: LayerSourceProvider = {};
+  /** Preview hooks consulted in order (first non-undefined answer wins). */
+  readonly providers: LayerSourceProvider[] = [];
 
   constructor(
     private readonly gpu: GPU,
@@ -149,7 +184,7 @@ export class Compositor {
       if (!layer.visible) continue;
       switch (layer.type) {
         case 'pixel': {
-          const override = this.provider.sourceFor?.(layer);
+          const override = this.overrideFor(layer);
           if (override === null) break;
           const source = override ?? this.pixelSource(layer);
           if (source) this.drawSource(acc, source, layer.opacity, layer.blendMode, layer.mask);
@@ -159,7 +194,7 @@ export class Compositor {
           this.compositeGroup(layer, acc);
           break;
         case 'text': {
-          const source = this.provider.sourceFor?.(layer);
+          const source = this.overrideFor(layer);
           if (source) this.drawSource(acc, source, layer.opacity, layer.blendMode, layer.mask);
           break;
         }
@@ -168,6 +203,14 @@ export class Compositor {
           break;
       }
     }
+  }
+
+  private overrideFor(layer: Layer): DrawSource | null | undefined {
+    for (const p of this.providers) {
+      const r = p.sourceFor?.(layer);
+      if (r !== undefined) return r;
+    }
+    return undefined;
   }
 
   private pixelSource(layer: Extract<Layer, { type: 'pixel' }>): DrawSource | null {
@@ -182,7 +225,7 @@ export class Compositor {
     };
   }
 
-  private bindMask(program: Program, mask: LayerMask | null): void {
+  private bindMask(program: Program, mask: LayerMask | null, maskTransform?: Affine): void {
     const gpu = this.gpu;
     if (mask && mask.enabled && this.surfaces.has(mask.surfaceId)) {
       const s = this.surfaces.get(mask.surfaceId);
@@ -192,6 +235,9 @@ export class Compositor {
         .int('u_hasMask', 1)
         .vec4('u_maskRect', mask.x, mask.y, s.width, s.height)
         .float('u_maskDefault', mask.defaultValue / 255);
+      const inv = maskTransform ? invertAffine(maskTransform) : null;
+      program.int('u_maskTransformed', inv ? 1 : 0);
+      if (inv) program.mat3('u_maskInv', affineToMat3(inv));
     } else {
       gpu.bindTexture(2, gpu.dummyR8);
       program.int('u_mask', 2).int('u_hasMask', 0);
@@ -207,22 +253,22 @@ export class Compositor {
     mask: LayerMask | null,
   ): void {
     if (opacity <= 0) return;
-    const docRect = intersectRects({ x: source.x, y: source.y, width: source.width, height: source.height }, acc.region);
+    if (source.transform && !invertAffine(source.transform)) return;
+    const docRect = intersectRects(sourceBounds(source), acc.region);
     if (isEmptyRect(docRect)) return;
-    // Masks with a hidden default can only reveal inside the mask surface.
+    const transformed = source.transform !== undefined;
     const local = { x: docRect.x - acc.region.x, y: docRect.y - acc.region.y, width: docRect.width, height: docRect.height };
     const mode = blendMode === 'passThrough' ? 'normal' : blendMode;
     const gpu = this.gpu;
 
     if (isFixedFunctionBlend(mode)) {
-      const program = gpu.program(`layerOver:${mode}`, () => layerOverProgram(mode === 'dissolve')).use();
+      const program = gpu
+        .program(`layerOver:${mode}:${transformed}`, () => layerOverProgram(mode === 'dissolve', transformed))
+        .use();
       gpu.bindTexture(0, source.texture);
-      program
-        .int('u_src', 0)
-        .vec2('u_srcOrigin', source.x, source.y)
-        .vec2('u_regionOrigin', acc.region.x, acc.region.y)
-        .float('u_opacity', opacity);
-      this.bindMask(program, mask);
+      setSourceUniforms(program, source);
+      program.vec2('u_regionOrigin', acc.region.x, acc.region.y).float('u_opacity', opacity);
+      this.bindMask(program, mask, source.maskTransform);
       gpu.blendOver();
       gpu.drawRect(program, acc.rt, local);
       gpu.noBlend();
@@ -231,16 +277,14 @@ export class Compositor {
 
     // Ping-pong: render blended pixels into scratch, then copy the rect back.
     const scratch = gpu.pool.acquire(acc.region.width, acc.region.height, acc.rt.format);
-    const program = gpu.program(`layerBlend:${mode}`, () => layerBlendProgram(mode)).use();
+    const program = gpu
+      .program(`layerBlend:${mode}:${transformed}`, () => layerBlendProgram(mode, transformed))
+      .use();
     gpu.bindTexture(0, source.texture);
     gpu.bindTexture(1, acc.rt.texture);
-    program
-      .int('u_src', 0)
-      .int('u_backdrop', 1)
-      .vec2('u_srcOrigin', source.x, source.y)
-      .vec2('u_regionOrigin', acc.region.x, acc.region.y)
-      .float('u_opacity', opacity);
-    this.bindMask(program, mask);
+    setSourceUniforms(program, source);
+    program.int('u_backdrop', 1).vec2('u_regionOrigin', acc.region.x, acc.region.y).float('u_opacity', opacity);
+    this.bindMask(program, mask, source.maskTransform);
     gpu.noBlend();
     gpu.drawRect(program, scratch, local);
     gpu.bindTexture(1, null);

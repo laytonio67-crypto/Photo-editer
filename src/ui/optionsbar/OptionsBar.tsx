@@ -1,29 +1,14 @@
 import type { ReactNode } from 'react';
-import { useEditor, useEditorState } from '../editorContext';
+import { Scan } from 'lucide-react';
+import { useEditorState } from '../editorContext';
 import { toolDef } from '../toolbar/toolDefs';
-import { Button } from '../controls/Button';
 import type { ToolId } from '../../engine/tools/types';
+import { CropOptions, MoveOptions, TransformOptions, ViewButtons } from './panels';
 import styles from './OptionsBar.module.css';
 
-function ViewButtons() {
-  const editor = useEditor();
-  const hasDoc = useEditorState((s) => s.doc !== null);
-  return (
-    <div className={styles.group}>
-      <Button className={styles.small} disabled={!hasDoc} onClick={() => editor.view.actualPixels()}>
-        100%
-      </Button>
-      <Button className={styles.small} disabled={!hasDoc} onClick={() => editor.view.fit()}>
-        Fit Screen
-      </Button>
-      <Button className={styles.small} disabled={!hasDoc} onClick={() => editor.view.fill()}>
-        Fill Screen
-      </Button>
-    </div>
-  );
-}
-
 const OPTION_PANELS: Partial<Record<ToolId, () => ReactNode>> = {
+  move: () => <MoveOptions />,
+  crop: () => <CropOptions />,
   hand: () => (
     <>
       <ViewButtons />
@@ -40,16 +25,28 @@ const OPTION_PANELS: Partial<Record<ToolId, () => ReactNode>> = {
 
 export function OptionsBar({ className }: { className?: string }) {
   const tool = useEditorState((s) => s.tool);
+  const transforming = useEditorState((s) => s.interaction?.kind === 'transform');
   const def = toolDef(tool);
   const Panel = OPTION_PANELS[tool];
   return (
     <div className={`${styles.bar} ${className ?? ''}`} role="region" aria-label="Tool options">
-      <div className={styles.toolBadge}>
-        {def.icon}
-        <span>{def.label}</span>
-      </div>
-      {Panel && <Panel />}
+      {transforming ? (
+        <>
+          <div className={styles.toolBadge}>
+            <Scan size={17} strokeWidth={1.6} />
+            <span>Free Transform</span>
+          </div>
+          <TransformOptions />
+        </>
+      ) : (
+        <>
+          <div className={styles.toolBadge}>
+            {def.icon}
+            <span>{def.label}</span>
+          </div>
+          {Panel && <Panel />}
+        </>
+      )}
     </div>
   );
 }
-

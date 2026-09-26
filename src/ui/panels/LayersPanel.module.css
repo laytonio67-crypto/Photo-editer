@@ -139,3 +139,52 @@
   color: var(--text-2);
   flex: none;
 }
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 8px 7px;
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+.headerRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.blend {
+  flex: 1;
+  min-width: 0;
+}
+
+.lockLabel {
+  width: 30px;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+
+.row[data-drop='above']::before,
+.row[data-drop='below']::after {
+  content: '';
+  position: absolute;
+  left: 30px;
+  right: 0;
+  height: 2px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.row[data-drop='above']::before {
+  top: -1px;
+}
+
+.row[data-drop='below']::after {
+  bottom: -1px;
+}
+
+.row[data-drop='into'] {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}

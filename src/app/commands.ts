@@ -1,7 +1,22 @@
 import type { Editor, EditorState } from '../engine/Editor';
 import type { ToolId } from '../engine/tools/types';
 import { IMPORT_ACCEPT } from '../engine/io/decode';
-import { deleteSelectedLayers, newPixelLayer } from '../engine/actions/layerActions';
+import {
+  canMergeDown,
+  deleteSelectedLayers,
+  duplicateSelectedLayers,
+  flattenImage,
+  groupSelected,
+  mergeDown,
+  mergeVisible,
+  newGroup,
+  newPixelLayer,
+  selectAdjacentLayer,
+  shiftActiveLayer,
+  ungroupActive,
+} from '../engine/actions/layerActions';
+import { flipCanvas, flipLayers, rotateCanvas, rotateLayers } from '../engine/actions/transformActions';
+import { findLayer } from '../engine/doc/layerTree';
 import { pickFiles } from './filePicker';
 import { matchesShortcut, parseShortcut, type ParsedShortcut } from './shortcuts';
 
@@ -28,6 +43,32 @@ const NEEDS_DOC = 'Open or create a document first';
 
 function needsDoc(state: EditorState): true | string {
   return state.doc ? true : NEEDS_DOC;
+}
+
+function needsLayer(state: EditorState): true | string {
+  if (!state.doc) return NEEDS_DOC;
+  return state.doc.activeLayerId ? true : 'No layer selected';
+}
+
+function needsGroup(state: EditorState): true | string {
+  if (!state.doc) return NEEDS_DOC;
+  const layer = findLayer(state.doc.layers, state.doc.activeLayerId);
+  return layer?.type === 'group' ? true : 'Select a group first';
+}
+
+/** Structure-changing commands are unavailable during Free Transform. */
+function notTransforming(state: EditorState): true | string {
+  return state.interaction?.kind === 'transform' ? 'Finish the transform first (Enter or Esc)' : true;
+}
+
+function all(...checks: ((s: EditorState) => true | string)[]): (s: EditorState) => true | string {
+  return (s) => {
+    for (const c of checks) {
+      const r = c(s);
+      if (r !== true) return r;
+    }
+    return true;
+  };
 }
 
 function toolCommand(id: ToolId, label: string, shortcut: string): Command {
@@ -96,21 +137,195 @@ export const COMMANDS: Command[] = [
     repeatable: true,
   },
 
+  {
+    id: 'edit.freeTransform',
+    label: 'Free Transform',
+    shortcut: 'Alt+Mod+T',
+    altShortcuts: ['Mod+T'],
+    enabled: all(needsLayer, notTransforming),
+    run: (editor) => editor.transformTool.begin(),
+  },
+  {
+    id: 'edit.flipH',
+    label: 'Flip Layer Horizontal',
+    enabled: all(needsLayer, notTransforming),
+    run: (editor) => flipLayers(editor, 'horizontal'),
+  },
+  {
+    id: 'edit.flipV',
+    label: 'Flip Layer Vertical',
+    enabled: all(needsLayer, notTransforming),
+    run: (editor) => flipLayers(editor, 'vertical'),
+  },
+  {
+    id: 'edit.rotateCW',
+    label: 'Rotate Layer 90° Clockwise',
+    enabled: all(needsLayer, notTransforming),
+    run: (editor) => rotateLayers(editor, 90),
+  },
+  {
+    id: 'edit.rotateCCW',
+    label: 'Rotate Layer 90° Counter Clockwise',
+    enabled: all(needsLayer, notTransforming),
+    run: (editor) => rotateLayers(editor, -90),
+  },
+  {
+    id: 'edit.rotate180',
+    label: 'Rotate Layer 180°',
+    enabled: all(needsLayer, notTransforming),
+    run: (editor) => rotateLayers(editor, 180),
+  },
+
+  // Image
+  {
+    id: 'image.size',
+    label: 'Image Size…',
+    shortcut: 'Alt+Mod+I',
+    enabled: all(needsDoc, notTransforming),
+    run: (editor) => editor.openDialog({ kind: 'imageSize' }),
+  },
+  {
+    id: 'image.canvasSize',
+    label: 'Canvas Size…',
+    shortcut: 'Alt+Mod+C',
+    enabled: all(needsDoc, notTransforming),
+    run: (editor) => editor.openDialog({ kind: 'canvasSize' }),
+  },
+  {
+    id: 'image.rotateCW',
+    label: 'Rotate Canvas 90° Clockwise',
+    enabled: all(needsDoc, notTransforming),
+    run: (editor) => rotateCanvas(editor, 90),
+  },
+  {
+    id: 'image.rotateCCW',
+    label: 'Rotate Canvas 90° Counter Clockwise',
+    enabled: all(needsDoc, notTransforming),
+    run: (editor) => rotateCanvas(editor, -90),
+  },
+  {
+    id: 'image.rotate180',
+    label: 'Rotate Canvas 180°',
+    enabled: all(needsDoc, notTransforming),
+    run: (editor) => rotateCanvas(editor, 180),
+  },
+  {
+    id: 'image.flipH',
+    label: 'Flip Canvas Horizontal',
+    enabled: all(needsDoc, notTransforming),
+    run: (editor) => flipCanvas(editor, 'horizontal'),
+  },
+  {
+    id: 'image.flipV',
+    label: 'Flip Canvas Vertical',
+    enabled: all(needsDoc, notTransforming),
+    run: (editor) => flipCanvas(editor, 'vertical'),
+  },
+
   // Layer
   {
     id: 'layer.new',
     label: 'New Layer',
     shortcut: 'Alt+Shift+Mod+N',
-    enabled: needsDoc,
+    enabled: all(needsDoc, notTransforming),
     run: (editor) => {
       newPixelLayer(editor);
     },
   },
   {
+    id: 'layer.newGroup',
+    label: 'New Group',
+    enabled: all(needsDoc, notTransforming),
+    run: (editor) => newGroup(editor),
+  },
+  {
+    id: 'layer.duplicate',
+    label: 'Duplicate Layer',
+    shortcut: 'Mod+J',
+    enabled: all(needsLayer, notTransforming),
+    run: (editor) => duplicateSelectedLayers(editor),
+  },
+  {
     id: 'layer.delete',
     label: 'Delete Layer',
-    enabled: (s) => (!s.doc ? NEEDS_DOC : s.doc.selectedLayerIds.length === 0 ? 'No layer selected' : true),
+    enabled: all((s) => (!s.doc ? NEEDS_DOC : s.doc.selectedLayerIds.length === 0 ? 'No layer selected' : true), notTransforming),
     run: (editor) => deleteSelectedLayers(editor),
+  },
+  {
+    id: 'layer.group',
+    label: 'Group Layers',
+    shortcut: 'Mod+G',
+    enabled: all(needsLayer, notTransforming),
+    run: (editor) => groupSelected(editor),
+  },
+  {
+    id: 'layer.ungroup',
+    label: 'Ungroup Layers',
+    shortcut: 'Shift+Mod+G',
+    enabled: all(needsGroup, notTransforming),
+    run: (editor) => ungroupActive(editor),
+  },
+  {
+    id: 'layer.mergeDown',
+    label: 'Merge Down',
+    shortcut: 'Mod+E',
+    enabled: all((s) => canMergeDown(s.doc), notTransforming),
+    run: (editor) => mergeDown(editor),
+  },
+  {
+    id: 'layer.mergeVisible',
+    label: 'Merge Visible',
+    shortcut: 'Shift+Mod+E',
+    enabled: all(needsDoc, notTransforming),
+    run: (editor) => mergeVisible(editor),
+  },
+  {
+    id: 'layer.flatten',
+    label: 'Flatten Image',
+    enabled: all(needsDoc, notTransforming),
+    run: (editor) => flattenImage(editor),
+  },
+  {
+    id: 'layer.bringToFront',
+    label: 'Bring to Front',
+    shortcut: 'Shift+Mod+]',
+    enabled: all(needsLayer, notTransforming),
+    run: (editor) => shiftActiveLayer(editor, 'top'),
+  },
+  {
+    id: 'layer.bringForward',
+    label: 'Bring Forward',
+    shortcut: 'Mod+]',
+    enabled: all(needsLayer, notTransforming),
+    run: (editor) => shiftActiveLayer(editor, 1),
+  },
+  {
+    id: 'layer.sendBackward',
+    label: 'Send Backward',
+    shortcut: 'Mod+[',
+    enabled: all(needsLayer, notTransforming),
+    run: (editor) => shiftActiveLayer(editor, -1),
+  },
+  {
+    id: 'layer.sendToBack',
+    label: 'Send to Back',
+    shortcut: 'Shift+Mod+[',
+    enabled: all(needsLayer, notTransforming),
+    run: (editor) => shiftActiveLayer(editor, 'bottom'),
+  },
+  {
+    id: 'layer.selectAbove',
+    label: 'Select Layer Above',
+    shortcut: 'Alt+]',
+    enabled: needsLayer,
+    run: (editor) => selectAdjacentLayer(editor, 'up'),
+  },
+  {
+    id: 'layer.selectBelow',
+    label: 'Select Layer Below',
+    shortcut: 'Alt+[',
+    enabled: needsLayer,
+    run: (editor) => selectAdjacentLayer(editor, 'down'),
   },
 
   // View
@@ -169,6 +384,8 @@ export const COMMANDS: Command[] = [
   },
 
   // Tools
+  toolCommand('move', 'Move Tool', 'V'),
+  toolCommand('crop', 'Crop Tool', 'C'),
   toolCommand('hand', 'Hand Tool', 'H'),
   toolCommand('zoom', 'Zoom Tool', 'Z'),
 

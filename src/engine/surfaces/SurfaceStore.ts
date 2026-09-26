@@ -315,15 +315,18 @@ export class SurfaceStore {
    * Moves a GPU-resident surface to CPU memory to free GPU memory. Used for surfaces
    * only referenced by history.
    */
-  async evict(id: SurfaceId): Promise<void> {
+  async evict(id: SurfaceId): Promise<boolean> {
     const s = this.surfaces.get(id);
-    if (!s || !s.target) return;
+    if (!s || !s.target) return false;
+    const version = s.version;
     const data = await this.read(id);
-    // The surface may have been deleted or re-targeted while the read was in flight.
-    if (this.surfaces.get(id) !== s || !s.target) return;
+    // Abort if the surface was deleted, modified or re-created while the read was in
+    // flight: the snapshot would be stale.
+    if (this.surfaces.get(id) !== s || !s.target || s.version !== version) return false;
     s.cpu = data;
     s.target.dispose();
     s.target = null;
+    return true;
   }
 
   /** Bytes of GPU memory held by resident surfaces. */

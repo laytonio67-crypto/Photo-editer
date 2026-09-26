@@ -4,6 +4,7 @@ import { Button } from '../controls/Button';
 import { COMMANDS, commandLabel } from '../../app/commands';
 import { formatShortcut } from '../../app/shortcuts';
 import { NewDocumentDialog } from './NewDocumentDialog';
+import { CanvasSizeDialog, ImageSizeDialog } from './SizeDialogs';
 import styles from './Dialogs.module.css';
 
 function ShortcutsDialog() {
@@ -129,5 +130,9 @@ export function DialogHost() {
       return <AboutDialog />;
     case 'shortcuts':
       return <ShortcutsDialog />;
+    case 'imageSize':
+      return <ImageSizeDialog />;
+    case 'canvasSize':
+      return <CanvasSizeDialog />;
   }
 }

@@ -99,3 +99,76 @@ export async function settle(page: Page): Promise<void> {
 export function expectNoProblems(app: AppHandle): void {
   expect(app.problems, app.problems.join('\n')).toEqual([]);
 }
+
+export interface SolidLayerSpec {
+  name: string;
+  color: [number, number, number];
+  /** x, y, width, height in document px (defaults to the whole document). */
+  rect?: [number, number, number, number];
+  blendMode?: string;
+  opacity?: number;
+}
+
+/**
+ * Builds a document from opaque solid-colour layers (bottom → top) through the editor's
+ * public engine objects. Returns the created layer ids.
+ */
+export async function buildDoc(page: Page, width: number, height: number, layers: SolidLayerSpec[]): Promise<string[]> {
+  return page.evaluate(
+    ({ width, height, layers }) => {
+      const ed = (window as any).__emulsion;
+      const canvasFor = (w: number, h: number, color: number[]) => {
+        const c = document.createElement('canvas');
+        c.width = w;
+        c.height = h;
+        const g = c.getContext('2d')!;
+        g.fillStyle = `rgb(${color[0]},${color[1]},${color[2]})`;
+        g.fillRect(0, 0, w, h);
+        return c;
+      };
+      ed.newDocument({ name: 'Test', width, height, resolution: 72, background: 'transparent' });
+      const ids: string[] = [];
+      const built = layers.map((l, i) => {
+        const [x, y, w, h] = l.rect ?? [0, 0, width, height];
+        const surface = ed.surfaces.createFromImage(canvasFor(w, h, l.color));
+        const id = `test_layer_${i}`;
+        ids.push(id);
+        return {
+          id,
+          type: 'pixel',
+          name: l.name,
+          visible: true,
+          opacity: l.opacity ?? 1,
+          blendMode: l.blendMode ?? 'normal',
+          locks: { transparency: false, pixels: false, position: false },
+          mask: null,
+          clipped: false,
+          surfaceId: surface.id,
+          x,
+          y,
+        };
+      });
+      ed.commit('Build', (d: any) => ({
+        ...d,
+        layers: built,
+        activeLayerId: ids[ids.length - 1],
+        selectedLayerIds: [ids[ids.length - 1]],
+      }));
+      return ids;
+    },
+    { width, height, layers },
+  );
+}
+
+/** Runs a document transformation inside the page (plain-object doc), recorded in history. */
+export async function patchLayer(page: Page, id: string, patch: Record<string, unknown>): Promise<void> {
+  await page.evaluate(
+    ({ id, patch }) => {
+      const ed = (window as any).__emulsion;
+      const walk = (layers: any[]): any[] =>
+        layers.map((l) => (l.id === id ? { ...l, ...patch } : l.children ? { ...l, children: walk(l.children) } : l));
+      ed.commit('Patch', (d: any) => ({ ...d, layers: walk(d.layers) }));
+    },
+    { id, patch },
+  );
+}

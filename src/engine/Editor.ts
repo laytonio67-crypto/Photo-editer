@@ -9,12 +9,16 @@ import { ViewController } from './view/ViewController';
 import { ToolManager } from './tools/ToolManager';
 import { HandTool } from './tools/HandTool';
 import { ZoomTool } from './tools/ZoomTool';
+import { MoveTool } from './tools/MoveTool';
+import { CropTool } from './tools/CropTool';
+import { TransformTool } from './tools/TransformTool';
 import type { ToolId } from './tools/types';
 import { History, type HistorySnapshot, type PixelPatch } from './history/History';
 import { diffDocs } from './doc/diff';
 import { collectDocSurfaces, walkLayers } from './doc/layerTree';
 import { createDocState, createPixelLayer } from './doc/factory';
-import type { DocState, Layer, RGB, SurfaceId } from './doc/types';
+import type { DocState, Layer, RGB, SurfaceId, TextLayer } from './doc/types';
+import { DEFAULT_TOOL_OPTIONS, type Interaction, type ToolOptions } from './tools/options';
 import { translateRect, type Point, type Rect } from './geometry';
 import { addLayer } from './ops/layerOps';
 import { baseName, decodeImage, downscaleBitmap, ImageDecodeError } from './io/decode';
@@ -32,7 +36,9 @@ export type DialogState =
       resolve: (ok: boolean) => void;
     }
   | { kind: 'about' }
-  | { kind: 'shortcuts' };
+  | { kind: 'shortcuts' }
+  | { kind: 'imageSize' }
+  | { kind: 'canvasSize' };
 
 export interface Notice {
   id: number;
@@ -58,6 +64,9 @@ export interface EditorState {
   fatalError: string | null;
   foreground: RGB;
   background: RGB;
+  toolOptions: ToolOptions;
+  /** Numeric state of a modal interaction (Free Transform, Crop) for the options bar. */
+  interaction: Interaction;
 }
 
 export interface EditorEvents extends Record<string, unknown> {
@@ -124,6 +133,9 @@ export class Transaction {
 
 let noticeId = 0;
 
+/** GPU memory allowed for layer/mask surfaces before history-only ones are evicted. */
+const GPU_SURFACE_BUDGET = 1024 * 1024 * 1024;
+
 /**
  * Composition root of the editing engine. Owns the WebGL context and every engine
  * subsystem; React talks to it through `store` (state) and methods (commands).
@@ -142,12 +154,15 @@ export class Editor {
   readonly view = new ViewController();
   readonly tools: ToolManager;
   readonly history: History;
+  readonly transformTool: TransformTool;
 
   private frameHandle = 0;
   private overlayDirty = true;
   private lastDoc: DocState | null = null;
   private transaction: Transaction | null = null;
   private readonly pinnedSurfaces = new Set<SurfaceId>();
+  /** Bounds of a text layer's rendered raster (provided by the text engine). */
+  textBounds: ((layer: TextLayer) => Rect | null) | null = null;
 
   constructor() {
     this.canvas = document.createElement('canvas');
@@ -183,6 +198,8 @@ export class Editor {
       fatalError: null,
       foreground: { r: 0, g: 0, b: 0 },
       background: { r: 255, g: 255, b: 255 },
+      toolOptions: DEFAULT_TOOL_OPTIONS,
+      interaction: null,
     });
     this.history.onChange = () => {
       this.store.set({ history: this.history.snapshot() });
@@ -190,9 +207,11 @@ export class Editor {
     };
 
     this.tools = new ToolManager(this);
+    this.tools.register(new MoveTool(this));
+    this.tools.register(new CropTool(this));
     this.tools.register(new HandTool(this));
     this.tools.register(new ZoomTool(this));
-    this.store.set({ tool: 'hand' });
+    this.transformTool = new TransformTool(this);
 
     this.store.subscribe(() => this.onStateChange());
     this.view.events.on('change', (t) => {
@@ -383,8 +402,17 @@ export class Editor {
     if (!this.store.get().modified) this.store.set({ modified: true });
   }
 
+  /** Aborts a modal interaction (Free Transform) without applying it. */
+  cancelMode(): void {
+    this.tools.activeMode?.onCancelRequest?.();
+  }
+
   async undo(): Promise<void> {
     this.tools.cancelGesture();
+    if (this.tools.activeMode) {
+      this.cancelMode();
+      return;
+    }
     if (this.transaction) return;
     await this.history.undo((doc) => this.replaceDoc(doc));
     this.markModified();
@@ -392,6 +420,7 @@ export class Editor {
 
   async redo(): Promise<void> {
     this.tools.cancelGesture();
+    this.cancelMode();
     if (this.transaction) return;
     await this.history.redo((doc) => this.replaceDoc(doc));
     this.markModified();
@@ -399,6 +428,7 @@ export class Editor {
 
   async goToHistory(position: number): Promise<void> {
     this.tools.cancelGesture();
+    this.cancelMode();
     if (this.transaction) return;
     await this.history.goTo(position, (doc) => this.replaceDoc(doc));
     this.markModified();
@@ -421,6 +451,35 @@ export class Editor {
     if (doc) collectDocSurfaces(doc, live);
     this.history.referencedSurfaces(live);
     this.surfaces.collectGarbage(live);
+    void this.evictHistorySurfaces();
+  }
+
+  private evicting = false;
+
+  /**
+   * Moves surfaces referenced only by history (not by the current document) from the
+   * GPU to CPU memory, least recently used first, while GPU usage exceeds the budget.
+   * Undo re-uploads them on demand.
+   */
+  private async evictHistorySurfaces(): Promise<void> {
+    if (this.evicting) return;
+    const budget = GPU_SURFACE_BUDGET;
+    if (this.surfaces.gpuBytes() <= budget) return;
+    this.evicting = true;
+    try {
+      for (const s of this.surfaces.lruOrder()) {
+        if (this.surfaces.gpuBytes() <= budget) break;
+        const doc = this.doc;
+        const inUse = new Set<SurfaceId>(this.pinnedSurfaces);
+        if (doc) collectDocSurfaces(doc, inUse);
+        if (!s.target || inUse.has(s.id)) continue;
+        await this.surfaces.evict(s.id);
+      }
+    } catch (err) {
+      console.warn('Surface eviction failed', err);
+    } finally {
+      this.evicting = false;
+    }
   }
 
   // ------------------------------------------------------ document lifecycle
@@ -428,6 +487,7 @@ export class Editor {
   /** Installs a brand-new document, resetting history and fitting the view. */
   private installDocument(doc: DocState, baseLabel: string): void {
     this.tools.cancelGesture();
+    this.cancelMode();
     this.transaction?.cancel();
     this.replaceDoc(doc);
     this.history.reset(baseLabel);
@@ -549,6 +609,7 @@ export class Editor {
   async closeDocument(): Promise<void> {
     if (!(await this.confirmDiscard('close the document'))) return;
     this.tools.cancelGesture();
+    this.cancelMode();
     this.transaction?.cancel();
     this.replaceDoc(null);
     this.history.reset('Open');
@@ -617,6 +678,11 @@ export class Editor {
         },
       });
     });
+  }
+
+  /** Updates options of one tool, e.g. setToolOptions('crop', { ratio: '1:1' }). */
+  setToolOptions<K extends keyof ToolOptions>(tool: K, patch: Partial<ToolOptions[K]>): void {
+    this.store.set((s) => ({ toolOptions: { ...s.toolOptions, [tool]: { ...s.toolOptions[tool], ...patch } } }));
   }
 
   setColors(colors: { foreground?: RGB; background?: RGB }): void {

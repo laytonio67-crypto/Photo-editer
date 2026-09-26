@@ -15,7 +15,9 @@ export type ToolId =
   | 'healingBrush'
   | 'text'
   | 'hand'
-  | 'zoom';
+  | 'zoom'
+  /** Free Transform mode (not a toolbar tool). */
+  | 'transform';
 
 export interface ToolPointerEvent {
   /** Document coordinates (fractional). */
@@ -67,4 +69,8 @@ export interface Tool {
   drawOverlay?(ctx: CanvasRenderingContext2D): void;
   /** True if the overlay changes over time (animated). */
   hasActiveGesture?(): boolean;
+  /** Modes: asked to finish (commit) because the user switched tools. */
+  onCommitRequest?(): void;
+  /** Modes: asked to abort (undo, document replaced). */
+  onCancelRequest?(): void;
 }

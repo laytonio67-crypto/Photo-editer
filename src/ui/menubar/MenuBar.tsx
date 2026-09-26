@@ -171,9 +171,12 @@ export function MenuBar({ className }: { className?: string }) {
       </nav>
       <div className={styles.title} aria-live="polite">
         {docName ? (
-          <span>
-            <strong>{docName}</strong>
-            {modified ? ' •' : ''} — {docSize} px
+          <span title={modified ? 'Unsaved changes' : undefined}>
+            <strong>
+              {docName}
+              {modified ? '*' : ''}
+            </strong>{' '}
+            — {docSize} px
           </span>
         ) : null}
       </div>

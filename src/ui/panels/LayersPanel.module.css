@@ -1,0 +1,141 @@
+.list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 2px 0;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  height: 44px;
+  padding-right: 8px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.22);
+  color: var(--text-1);
+  position: relative;
+}
+
+.row:hover {
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.row[aria-selected='true'] {
+  background: var(--accent-softer);
+  color: var(--text-0);
+}
+
+.row[data-active='true'] {
+  background: var(--accent-soft);
+}
+
+.row[data-hidden='true'] .thumbBox,
+.row[data-hidden='true'] .name {
+  opacity: 0.45;
+}
+
+.eye {
+  width: 30px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-right: 1px solid rgba(0, 0, 0, 0.22);
+  background: transparent;
+  color: var(--text-1);
+  flex: none;
+}
+
+.eye:hover {
+  color: var(--text-0);
+}
+
+.eye[aria-pressed='false'] {
+  color: var(--text-3);
+}
+
+.indent {
+  flex: none;
+}
+
+.chevron {
+  width: 16px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--text-2);
+  flex: none;
+}
+
+.chevron:hover {
+  color: var(--text-0);
+}
+
+.thumbBox {
+  width: 34px;
+  height: 34px;
+  margin: 0 8px 0 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.thumb {
+  display: block;
+  outline: 1px solid rgba(0, 0, 0, 0.6);
+  background-color: #fff;
+  background-image:
+    linear-gradient(45deg, #ccc 25%, transparent 25%), linear-gradient(-45deg, #ccc 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #ccc 75%), linear-gradient(-45deg, transparent 75%, #ccc 75%);
+  background-size: 8px 8px;
+  background-position:
+    0 0,
+    0 4px,
+    4px -4px,
+    -4px 0;
+}
+
+.iconThumb {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  color: var(--text-1);
+}
+
+.name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-md);
+}
+
+.nameInput {
+  flex: 1;
+  min-width: 0;
+  height: 22px;
+  padding: 0 4px;
+  border: 1px solid var(--border-focus);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  font-size: var(--fs-md);
+}
+
+.badges {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+  color: var(--text-2);
+  flex: none;
+}

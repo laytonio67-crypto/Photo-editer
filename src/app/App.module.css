@@ -1,0 +1,104 @@
+.app {
+  display: grid;
+  height: 100%;
+  grid-template-rows: var(--menubar-h) var(--optionsbar-h) minmax(0, 1fr) var(--statusbar-h);
+  grid-template-columns: var(--toolbar-w) minmax(0, 1fr) var(--sidebar-w);
+  grid-template-areas:
+    'menu menu menu'
+    'options options options'
+    'tools canvas side'
+    'status status status';
+  background: var(--bg-chrome);
+}
+
+.menu {
+  grid-area: menu;
+}
+
+.options {
+  grid-area: options;
+}
+
+.tools {
+  grid-area: tools;
+}
+
+.canvas {
+  grid-area: canvas;
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+}
+
+.side {
+  grid-area: side;
+  min-height: 0;
+}
+
+.status {
+  grid-area: status;
+}
+
+.dropOverlay {
+  position: absolute;
+  inset: 8px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed var(--accent);
+  border-radius: var(--radius-lg);
+  background: rgba(61, 134, 245, 0.08);
+  color: var(--text-0);
+  font-size: var(--fs-lg);
+  pointer-events: none;
+}
+
+.fatal {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 10, 12, 0.85);
+}
+
+.fatalBox {
+  max-width: 480px;
+  padding: 20px 24px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-pop);
+}
+
+.fatalBox h1 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.fatalBox p {
+  margin: 0 0 16px;
+  color: var(--text-1);
+  line-height: 1.5;
+}
+
+@media (max-width: 900px) {
+  .app {
+    --sidebar-w: 240px;
+  }
+}
+
+@media (max-width: 640px) {
+  .app {
+    grid-template-columns: var(--toolbar-w) minmax(0, 1fr);
+    grid-template-rows: var(--menubar-h) var(--optionsbar-h) minmax(0, 1fr) 40vh var(--statusbar-h);
+    grid-template-areas:
+      'menu menu'
+      'options options'
+      'tools canvas'
+      'side side'
+      'status status';
+  }
+}

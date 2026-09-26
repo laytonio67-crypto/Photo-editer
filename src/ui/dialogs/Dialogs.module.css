@@ -1,0 +1,77 @@
+.form {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  align-items: center;
+  gap: 10px 12px;
+}
+
+.label {
+  color: var(--text-1);
+  font-size: var(--fs-md);
+}
+
+.inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.text {
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  font-size: var(--fs-md);
+  width: 100%;
+}
+
+.text:focus {
+  border-color: var(--border-focus);
+}
+
+.note {
+  grid-column: 2;
+  margin: -4px 0 0;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+
+.error {
+  color: var(--danger);
+}
+
+.message {
+  margin: 0;
+  line-height: 1.55;
+  color: var(--text-1);
+}
+
+.shortcutTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-md);
+}
+
+.shortcutTable th {
+  padding: 10px 0 4px;
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.shortcutTable td {
+  padding: 3px 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-1);
+}
+
+.shortcutTable td:last-child {
+  text-align: right;
+  color: var(--text-0);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+}

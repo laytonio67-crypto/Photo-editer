@@ -1,0 +1,103 @@
+.popover {
+  position: fixed;
+  z-index: 90;
+  width: 256px;
+  padding: 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-pop);
+}
+
+.title {
+  margin: 0 0 8px;
+  color: var(--text-1);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+.pickers {
+  display: flex;
+  gap: 8px;
+}
+
+.sv {
+  position: relative;
+  flex: 1;
+  height: 164px;
+  border-radius: var(--radius-sm);
+  cursor: crosshair;
+  touch-action: none;
+  background-image: linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, transparent);
+}
+
+.svHandle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+
+.hue {
+  position: relative;
+  width: 14px;
+  height: 164px;
+  border-radius: var(--radius-sm);
+  cursor: ns-resize;
+  touch-action: none;
+  background: linear-gradient(to bottom, #f00, #ff0 17%, #0f0 33%, #0ff 50%, #00f 67%, #f0f 83%, #f00);
+}
+
+.hueHandle {
+  position: absolute;
+  left: -3px;
+  right: -3px;
+  height: 4px;
+  margin-top: -2px;
+  border: 1px solid #fff;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.compare {
+  display: flex;
+  width: 44px;
+  height: 22px;
+  border: 1px solid #000;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  flex: none;
+}
+
+.compare span {
+  flex: 1;
+}
+
+.compare button {
+  flex: 1;
+  border: 0;
+  padding: 0;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.hex {
+  flex: 1;
+}

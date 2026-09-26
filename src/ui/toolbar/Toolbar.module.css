@@ -1,0 +1,96 @@
+.toolbar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 0;
+  border-right: 1px solid var(--border-strong);
+  background: var(--bg-panel);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.tool {
+  width: 32px;
+  height: 30px;
+  border-radius: var(--radius-md);
+}
+
+.separator {
+  width: 22px;
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
+  flex: none;
+}
+
+.spacer {
+  flex: 1;
+  min-height: 8px;
+}
+
+.colors {
+  position: relative;
+  width: 36px;
+  height: 40px;
+  flex: none;
+  margin-bottom: 4px;
+}
+
+.swatch {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid #000;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+  border-radius: 2px;
+}
+
+.fg {
+  left: 2px;
+  top: 2px;
+  z-index: 1;
+}
+
+.bg {
+  left: 12px;
+  top: 12px;
+}
+
+.swap,
+.reset {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.swap:hover,
+.reset:hover {
+  color: var(--text-0);
+}
+
+.swap {
+  right: 1px;
+  top: 1px;
+}
+
+.reset {
+  left: 0;
+  bottom: 0;
+}
+
+.colorInput {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}

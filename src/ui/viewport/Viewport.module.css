@@ -1,0 +1,119 @@
+.viewport {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  background: var(--pasteboard);
+}
+
+.viewport[data-rulers='true'] {
+  grid-template-columns: var(--ruler-size) minmax(0, 1fr);
+  grid-template-rows: var(--ruler-size) minmax(0, 1fr);
+}
+
+.corner {
+  grid-row: 1;
+  grid-column: 1;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border-strong);
+  border-bottom: 1px solid var(--border-strong);
+}
+
+.rulerH,
+.rulerV {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--bg-panel);
+}
+
+.rulerH {
+  grid-row: 1;
+  grid-column: 2;
+  border-bottom: 1px solid var(--border-strong);
+}
+
+.rulerV {
+  grid-row: 2;
+  grid-column: 1;
+  border-right: 1px solid var(--border-strong);
+}
+
+.stage {
+  position: relative;
+  overflow: hidden;
+  touch-action: none;
+  outline: none;
+}
+
+.viewport[data-rulers='true'] .stage {
+  grid-row: 2;
+  grid-column: 2;
+}
+
+.start {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--pasteboard);
+}
+
+.startPanel {
+  width: 360px;
+  max-width: calc(100% - 32px);
+}
+
+.startTitle {
+  margin: 0 0 4px;
+  color: var(--text-0);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.startSubtitle {
+  margin: 0 0 18px;
+  color: var(--text-2);
+  font-size: var(--fs-md);
+}
+
+.startActions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.startAction {
+  display: grid;
+  grid-template-columns: 22px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
+  color: var(--text-0);
+  text-align: left;
+}
+
+.startAction:hover {
+  background: var(--bg-raised);
+  border-color: var(--border-control);
+}
+
+.startAction kbd {
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: var(--fs-sm);
+}
+
+.startHint {
+  margin: 16px 0 0;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}

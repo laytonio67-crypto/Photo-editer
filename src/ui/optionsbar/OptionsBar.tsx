@@ -4,11 +4,23 @@ import { useEditorState } from '../editorContext';
 import { toolDef } from '../toolbar/toolDefs';
 import type { ToolId } from '../../engine/tools/types';
 import { CropOptions, MoveOptions, TransformOptions, ViewButtons } from './panels';
+import { MagicWandOptions, SelectionOptions } from './selectionPanels';
+import { BrushOptionsPanel, EyedropperOptionsPanel } from './paintPanels';
 import styles from './OptionsBar.module.css';
 
 const OPTION_PANELS: Partial<Record<ToolId, () => ReactNode>> = {
   move: () => <MoveOptions />,
+  marqueeRect: () => <SelectionOptions hint="Drag to select · Shift square · Alt from centre · drag inside to move" />,
+  marqueeEllipse: () => <SelectionOptions hint="Drag to select · Shift circle · Alt from centre · drag inside to move" />,
+  lasso: () => <SelectionOptions hint="Drag to draw a freehand selection" />,
+  polygonLasso: () => (
+    <SelectionOptions hint="Click to add points · click the start, double-click or Enter to close · Backspace undoes a point" />
+  ),
+  magicWand: () => <MagicWandOptions />,
   crop: () => <CropOptions />,
+  eyedropper: () => <EyedropperOptionsPanel />,
+  brush: () => <BrushOptionsPanel tool="brush" />,
+  eraser: () => <BrushOptionsPanel tool="eraser" />,
   hand: () => (
     <>
       <ViewButtons />

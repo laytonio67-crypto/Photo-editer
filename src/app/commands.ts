@@ -16,6 +16,27 @@ import {
   ungroupActive,
 } from '../engine/actions/layerActions';
 import { flipCanvas, flipLayers, rotateCanvas, rotateLayers } from '../engine/actions/transformActions';
+import {
+  cropToSelection,
+  deselect,
+  inverseSelection,
+  loadLayerTransparency,
+  reselect,
+  selectAllAction,
+} from '../engine/actions/selectionActions';
+import { copySelection, cutSelection, pasteClipboard } from '../engine/actions/clipboardActions';
+import {
+  addLayerMask,
+  applyLayerMask,
+  canAddMask,
+  deleteLayerMask,
+  invertLayerMask,
+  needsMask,
+  setEditTarget,
+  toggleLayerMask,
+} from '../engine/actions/maskActions';
+import { fillSelection } from '../engine/paint/PixelOps';
+import { importClipboardImages } from './clipboard';
 import { findLayer } from '../engine/doc/layerTree';
 import { pickFiles } from './filePicker';
 import { matchesShortcut, parseShortcut, type ParsedShortcut } from './shortcuts';
@@ -82,6 +103,45 @@ function toolCommand(id: ToolId, label: string, shortcut: string): Command {
   };
 }
 
+/**
+ * A shortcut shared by a tool group (M: marquees, L: lassos). The key keeps the
+ * current member if one is active; Shift+key cycles through the group.
+ */
+function toolGroupCommands(ids: ToolId[], key: string, labels: string[]): Command[] {
+  return [
+    {
+      id: `toolGroup.${ids[0]}`,
+      label: labels[0]!,
+      shortcut: key,
+      run: (editor) => {
+        const current = editor.store.get().tool;
+        editor.setTool(ids.includes(current) ? current : ids[0]!);
+      },
+    },
+    {
+      id: `toolGroupCycle.${ids[0]}`,
+      label: `Cycle ${labels[0]}`,
+      shortcut: `Shift+${key}`,
+      run: (editor) => {
+        const current = editor.store.get().tool;
+        const i = ids.indexOf(current);
+        editor.setTool(ids[(i + 1) % ids.length]!);
+      },
+    },
+    ...ids.map((id, i) => ({
+      id: `tool.${id}`,
+      label: labels[i]!,
+      checked: (s: EditorState) => s.tool === id,
+      run: (editor: Editor) => editor.setTool(id),
+    })),
+  ];
+}
+
+function needsSelection(state: EditorState): true | string {
+  if (!state.doc) return NEEDS_DOC;
+  return state.doc.selection ? true : 'Make a selection first';
+}
+
 export const COMMANDS: Command[] = [
   // File
   {
@@ -138,6 +198,67 @@ export const COMMANDS: Command[] = [
   },
 
   {
+    id: 'edit.cut',
+    label: 'Cut',
+    shortcut: 'Mod+X',
+    enabled: all(needsLayer, notTransforming),
+    run: (editor) => cutSelection(editor),
+  },
+  {
+    id: 'edit.copy',
+    label: 'Copy',
+    shortcut: 'Mod+C',
+    enabled: all(needsLayer, notTransforming),
+    run: async (editor) => {
+      await copySelection(editor, false);
+    },
+  },
+  {
+    id: 'edit.copyMerged',
+    label: 'Copy Merged',
+    shortcut: 'Shift+Mod+C',
+    enabled: all(needsDoc, notTransforming),
+    run: async (editor) => {
+      await copySelection(editor, true);
+    },
+  },
+  {
+    id: 'edit.paste',
+    label: 'Paste',
+    // Ctrl/Cmd+V is handled through the browser paste event (see App).
+    enabled: all(needsDoc, notTransforming),
+    run: async (editor) => {
+      if (await importClipboardImages(editor)) return;
+      if (!pasteClipboard(editor)) editor.notify('info', 'The clipboard contains no image.');
+    },
+  },
+  {
+    id: 'edit.clear',
+    label: 'Clear',
+    shortcut: 'Delete',
+    altShortcuts: ['Backspace'],
+    enabled: all(needsLayer, notTransforming),
+    run: (editor) => {
+      // Without a selection, Delete removes the active layer.
+      if (editor.doc?.selection) void fillSelection(editor, 'clear', 'Clear');
+      else deleteSelectedLayers(editor);
+    },
+  },
+  {
+    id: 'edit.fillForeground',
+    label: 'Fill with Foreground Color',
+    shortcut: 'Alt+Backspace',
+    enabled: all(needsLayer, notTransforming),
+    run: (editor) => fillSelection(editor, 'foreground', 'Fill').then(() => undefined),
+  },
+  {
+    id: 'edit.fillBackground',
+    label: 'Fill with Background Color',
+    shortcut: 'Mod+Backspace',
+    enabled: all(needsLayer, notTransforming),
+    run: (editor) => fillSelection(editor, 'background', 'Fill').then(() => undefined),
+  },
+  {
     id: 'edit.freeTransform',
     label: 'Free Transform',
     shortcut: 'Alt+Mod+T',
@@ -176,7 +297,56 @@ export const COMMANDS: Command[] = [
     run: (editor) => rotateLayers(editor, 180),
   },
 
+  // Select
+  {
+    id: 'select.all',
+    label: 'All',
+    shortcut: 'Mod+A',
+    enabled: all(needsDoc, notTransforming),
+    run: (editor) => selectAllAction(editor),
+  },
+  {
+    id: 'select.deselect',
+    label: 'Deselect',
+    shortcut: 'Mod+D',
+    enabled: all(needsSelection, notTransforming),
+    run: (editor) => deselect(editor),
+  },
+  {
+    id: 'select.reselect',
+    label: 'Reselect',
+    shortcut: 'Shift+Mod+D',
+    enabled: (s, editor) => (!s.doc ? NEEDS_DOC : editor.lastSelection ? true : 'No previous selection'),
+    run: (editor) => reselect(editor),
+  },
+  {
+    id: 'select.inverse',
+    label: 'Inverse',
+    shortcut: 'Shift+Mod+I',
+    enabled: all(needsDoc, notTransforming),
+    run: (editor) => inverseSelection(editor),
+  },
+  {
+    id: 'select.feather',
+    label: 'Feather…',
+    shortcut: 'Shift+F6',
+    enabled: all(needsSelection, notTransforming),
+    run: (editor) => editor.openDialog({ kind: 'feather' }),
+  },
+  {
+    id: 'select.loadTransparency',
+    label: 'Load Layer Transparency',
+    enabled: all(needsLayer, notTransforming),
+    run: (editor) => loadLayerTransparency(editor),
+  },
+
   // Image
+  {
+    id: 'image.cropToSelection',
+    label: 'Crop to Selection',
+    enabled: all(needsSelection, notTransforming),
+    run: (editor) => cropToSelection(editor),
+  },
   {
     id: 'image.size',
     label: 'Image Size…',
@@ -286,6 +456,59 @@ export const COMMANDS: Command[] = [
     run: (editor) => flattenImage(editor),
   },
   {
+    id: 'layer.addMask',
+    label: 'Add Layer Mask (Reveal)',
+    enabled: all((s) => canAddMask(s.doc), notTransforming),
+    run: (editor) => addLayerMask(editor, false),
+  },
+  {
+    id: 'layer.addMaskHide',
+    label: 'Add Layer Mask (Hide)',
+    enabled: all((s) => canAddMask(s.doc), notTransforming),
+    run: (editor) => addLayerMask(editor, true),
+  },
+  {
+    id: 'layer.toggleMask',
+    label: 'Disable/Enable Layer Mask',
+    enabled: all((s) => needsMask(s.doc), notTransforming),
+    run: (editor) => toggleLayerMask(editor),
+  },
+  {
+    id: 'layer.invertMask',
+    label: 'Invert Layer Mask',
+    shortcut: 'Mod+I',
+    enabled: all((s) => needsMask(s.doc), notTransforming),
+    run: (editor) => invertLayerMask(editor),
+  },
+  {
+    id: 'layer.applyMask',
+    label: 'Apply Layer Mask',
+    enabled: all((s) => needsMask(s.doc), notTransforming),
+    run: (editor) => applyLayerMask(editor),
+  },
+  {
+    id: 'layer.deleteMask',
+    label: 'Delete Layer Mask',
+    enabled: all((s) => needsMask(s.doc), notTransforming),
+    run: (editor) => deleteLayerMask(editor),
+  },
+  {
+    id: 'layer.editContent',
+    label: 'Edit Layer Pixels',
+    shortcut: 'Mod+2',
+    enabled: needsLayer,
+    checked: (s) => s.doc?.editTarget === 'content',
+    run: (editor) => setEditTarget(editor, 'content'),
+  },
+  {
+    id: 'layer.editMask',
+    label: 'Edit Layer Mask',
+    shortcut: 'Mod+\\',
+    enabled: (s) => needsMask(s.doc),
+    checked: (s) => s.doc?.editTarget === 'mask',
+    run: (editor) => setEditTarget(editor, 'mask'),
+  },
+  {
     id: 'layer.bringToFront',
     label: 'Bring to Front',
     shortcut: 'Shift+Mod+]',
@@ -366,6 +589,28 @@ export const COMMANDS: Command[] = [
     run: (editor) => editor.view.printSize(),
   },
   {
+    id: 'view.maskGrayscale',
+    label: 'Show Layer Mask',
+    shortcut: 'Alt+\\',
+    enabled: (s) => needsMask(s.doc),
+    checked: (s) => s.maskView === 'grayscale',
+    run: (editor) => {
+      editor.store.set((s) => ({ maskView: s.maskView === 'grayscale' ? 'off' : 'grayscale' }));
+      editor.requestRender();
+    },
+  },
+  {
+    id: 'view.maskOverlay',
+    label: 'Mask Overlay',
+    shortcut: '\\',
+    enabled: (s) => needsMask(s.doc),
+    checked: (s) => s.maskView === 'overlay',
+    run: (editor) => {
+      editor.store.set((s) => ({ maskView: s.maskView === 'overlay' ? 'off' : 'overlay' }));
+      editor.requestRender();
+    },
+  },
+  {
     id: 'view.rulers',
     label: 'Rulers',
     shortcut: 'Mod+R',
@@ -385,7 +630,13 @@ export const COMMANDS: Command[] = [
 
   // Tools
   toolCommand('move', 'Move Tool', 'V'),
+  ...toolGroupCommands(['marqueeRect', 'marqueeEllipse'], 'M', ['Rectangular Marquee Tool', 'Elliptical Marquee Tool']),
+  ...toolGroupCommands(['lasso', 'polygonLasso'], 'L', ['Lasso Tool', 'Polygonal Lasso Tool']),
+  toolCommand('magicWand', 'Magic Wand Tool', 'W'),
   toolCommand('crop', 'Crop Tool', 'C'),
+  toolCommand('eyedropper', 'Eyedropper Tool', 'I'),
+  toolCommand('brush', 'Brush Tool', 'B'),
+  toolCommand('eraser', 'Eraser Tool', 'E'),
   toolCommand('hand', 'Hand Tool', 'H'),
   toolCommand('zoom', 'Zoom Tool', 'Z'),
 

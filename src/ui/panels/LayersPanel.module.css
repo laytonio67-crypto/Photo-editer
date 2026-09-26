@@ -188,3 +188,40 @@
 .row[data-drop='into'] {
   box-shadow: inset 0 0 0 2px var(--accent);
 }
+
+.thumbBox[data-target='true'] .thumb {
+  outline: 2px solid var(--text-0);
+  outline-offset: 1px;
+}
+
+.thumbBox[data-disabled='true'] {
+  position: relative;
+}
+
+.thumbBox[data-disabled='true']::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  background:
+    linear-gradient(45deg, transparent 46%, var(--danger) 46%, var(--danger) 54%, transparent 54%),
+    linear-gradient(-45deg, transparent 46%, var(--danger) 46%, var(--danger) 54%, transparent 54%);
+  pointer-events: none;
+}
+
+.link {
+  width: 14px;
+  height: 20px;
+  margin: 0 -4px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: var(--text-3);
+  flex: none;
+}
+
+.link[aria-pressed='true'] {
+  color: var(--text-1);
+}

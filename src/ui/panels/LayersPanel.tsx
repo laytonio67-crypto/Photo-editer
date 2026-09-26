@@ -2,7 +2,9 @@ import { memo, useCallback, useRef, useState, type KeyboardEvent, type MouseEven
 import {
   ChevronDown,
   ChevronRight,
+  CircleDot,
   Copy,
+  Link2,
   Eye,
   EyeOff,
   Folder,
@@ -31,6 +33,8 @@ import {
   setLayerVisibility,
 } from '../../engine/actions/layerActions';
 import { setLayerProps, soloVisibility, toggleGroupExpanded } from '../../engine/ops/layerOps';
+import { setEditTarget, toggleLayerMask, toggleMaskLink } from '../../engine/actions/maskActions';
+import { loadLayerTransparency } from '../../engine/actions/selectionActions';
 import { runCommand } from '../../app/commands';
 import { formatShortcut } from '../../app/shortcuts';
 import { isModKey } from '../../engine/tools/ToolManager';
@@ -121,6 +125,7 @@ interface RowProps {
   depth: number;
   selected: boolean;
   active: boolean;
+  editTarget: 'content' | 'mask';
   docWidth: number;
   docHeight: number;
   drop: DropZone | null;
@@ -133,6 +138,7 @@ const LayerRow = memo(function LayerRow({
   depth,
   selected,
   active,
+  editTarget,
   docWidth,
   docHeight,
   drop,
@@ -166,6 +172,27 @@ const LayerRow = memo(function LayerRow({
     );
   }
   const locked = layer.locks.pixels || layer.locks.position || layer.locks.transparency;
+  const onContentThumbClick = (e: MouseEvent): void => {
+    if (isModKey(e)) {
+      e.stopPropagation();
+      loadLayerTransparency(editor, layer.id);
+      return;
+    }
+    setEditTarget(editor, 'content');
+  };
+  const onMaskThumbClick = (e: MouseEvent): void => {
+    e.stopPropagation();
+    if (!active) selectLayerAction(editor, layer.id);
+    if (e.shiftKey) {
+      toggleLayerMask(editor);
+      return;
+    }
+    if (e.altKey) {
+      editor.store.set((s) => ({ maskView: s.maskView === 'grayscale' ? 'off' : 'grayscale' }));
+      editor.requestRender();
+    }
+    setEditTarget(editor, 'mask');
+  };
 
   return (
     <div
@@ -213,7 +240,43 @@ const LayerRow = memo(function LayerRow({
       ) : (
         <span style={{ width: 16, flex: 'none' }} />
       )}
-      <span className={styles.thumbBox}>{thumb}</span>
+      <span
+        className={styles.thumbBox}
+        data-target={active && editTarget === 'content' && Boolean(layer.mask)}
+        title={layer.type === 'pixel' ? `${layer.name} — ${formatShortcut('Mod+')}click to load transparency as selection` : undefined}
+        onClick={onContentThumbClick}
+      >
+        {thumb}
+      </span>
+      {layer.mask && (
+        <>
+          <button
+            type="button"
+            className={styles.link}
+            aria-pressed={layer.mask.linked}
+            aria-label={layer.mask.linked ? 'Unlink mask from layer' : 'Link mask to layer'}
+            title={layer.mask.linked ? 'Mask moves with the layer (click to unlink)' : 'Mask is unlinked (click to link)'}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!active) selectLayerAction(editor, layer.id);
+              toggleMaskLink(editor);
+            }}
+          >
+            <Link2 size={11} />
+          </button>
+          <span
+            className={styles.thumbBox}
+            data-target={active && editTarget === 'mask'}
+            data-disabled={!layer.mask.enabled}
+            data-testid="mask-thumb"
+            title="Layer mask — click to edit, Shift-click to disable, Alt-click to view"
+            onClick={onMaskThumbClick}
+          >
+            <LayerThumbnail layer={layer} docWidth={docWidth} docHeight={docHeight} size={32} className={styles.thumb} mask />
+          </span>
+        </>
+      )}
       {editing ? (
         <input
           className={styles.nameInput}
@@ -332,6 +395,12 @@ export function LayersPanel() {
     'layer.duplicate',
     'layer.delete',
     '-',
+    'select.loadTransparency',
+    'layer.addMask',
+    'layer.toggleMask',
+    'layer.applyMask',
+    'layer.deleteMask',
+    '-',
     'layer.group',
     'layer.ungroup',
     '-',
@@ -367,6 +436,7 @@ export function LayersPanel() {
             depth={depth}
             selected={selected.has(layer.id)}
             active={doc.activeLayerId === layer.id}
+            editTarget={doc.editTarget}
             docWidth={doc.width}
             docHeight={doc.height}
             drop={dropTarget?.id === layer.id ? dropTarget.zone : null}
@@ -376,6 +446,14 @@ export function LayersPanel() {
         ))}
       </div>
       <div className={panel.footer}>
+        <IconButton
+          label="Add layer mask"
+          tooltip="Add layer mask (reveals the selection, if any)"
+          icon={<CircleDot size={14} strokeWidth={1.7} />}
+          size="small"
+          disabled={!doc.activeLayerId || Boolean(findLayer(doc.layers, doc.activeLayerId)?.mask)}
+          onClick={(e) => runCommand(editor, e.altKey ? 'layer.addMaskHide' : 'layer.addMask')}
+        />
         <IconButton
           label="New group"
           icon={<FolderPlus size={14} strokeWidth={1.7} />}

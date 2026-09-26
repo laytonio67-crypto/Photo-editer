@@ -5,6 +5,7 @@ import { COMMANDS, commandLabel } from '../../app/commands';
 import { formatShortcut } from '../../app/shortcuts';
 import { NewDocumentDialog } from './NewDocumentDialog';
 import { CanvasSizeDialog, ImageSizeDialog } from './SizeDialogs';
+import { FeatherDialog } from './FeatherDialog';
 import styles from './Dialogs.module.css';
 
 function ShortcutsDialog() {
@@ -22,6 +23,8 @@ function ShortcutsDialog() {
     image: 'Image',
     layer: 'Layer',
     select: 'Select',
+    toolGroup: 'Tools',
+    toolGroupCycle: 'Tools',
     view: 'View',
     tool: 'Tools',
     color: 'Colors',
@@ -134,5 +137,7 @@ export function DialogHost() {
       return <ImageSizeDialog />;
     case 'canvasSize':
       return <CanvasSizeDialog />;
+    case 'feather':
+      return <FeatherDialog />;
   }
 }

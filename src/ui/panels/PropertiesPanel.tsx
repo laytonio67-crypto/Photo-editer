@@ -9,7 +9,10 @@ import { moveLayers } from '../../engine/ops/transformOps';
 import { setLayerProps } from '../../engine/ops/layerOps';
 import { runCommand } from '../../app/commands';
 import { NumberField } from '../controls/NumberField';
-import { IconButton } from '../controls/Button';
+import { Button, IconButton } from '../controls/Button';
+import controls from '../controls/controls.module.css';
+import optionStyles from '../optionsbar/OptionsBar.module.css';
+import { setEditTarget, toggleMaskLink } from '../../engine/actions/maskActions';
 import { useScrub } from '../useScrub';
 import { BlendModeSelect } from './BlendModeSelect';
 import panel from './Panel.module.css';
@@ -103,6 +106,79 @@ function TransformSection({ layer }: { layer: Layer }) {
   );
 }
 
+function MaskSection({ layer }: { layer: Layer }) {
+  const editor = useEditor();
+  const editTarget = useEditorState((s) => s.doc?.editTarget ?? 'content');
+  const maskView = useEditorState((s) => s.maskView);
+  const mask = layer.mask;
+  if (!mask) {
+    return (
+      <section className={panel.section}>
+        <h2 className={panel.sectionTitle}>Mask</h2>
+        <div className={panel.controlRow}>
+          <Button className={optionStyles.small} onClick={() => runCommand(editor, 'layer.addMask')}>
+            Add Mask
+          </Button>
+          <Button className={optionStyles.small} onClick={() => runCommand(editor, 'layer.addMaskHide')}>
+            Add Hiding Mask
+          </Button>
+        </div>
+      </section>
+    );
+  }
+  const setView = (v: 'off' | 'grayscale' | 'overlay') => {
+    editor.store.set({ maskView: v });
+    editor.requestRender();
+  };
+  return (
+    <section className={panel.section}>
+      <h2 className={panel.sectionTitle}>Mask</h2>
+      <div className={panel.controlRow}>
+        <span className={panel.controlLabel}>Edit</span>
+        <div className={optionStyles.segmented} role="radiogroup" aria-label="Edit target">
+          <button type="button" role="radio" aria-checked={editTarget === 'content'} aria-pressed={editTarget === 'content'} onClick={() => setEditTarget(editor, 'content')}>
+            Pixels
+          </button>
+          <button type="button" role="radio" aria-checked={editTarget === 'mask'} aria-pressed={editTarget === 'mask'} onClick={() => setEditTarget(editor, 'mask')}>
+            Mask
+          </button>
+        </div>
+      </div>
+      <div className={panel.controlRow}>
+        <span className={panel.controlLabel}>View</span>
+        <div className={optionStyles.segmented} role="radiogroup" aria-label="Mask view">
+          {(['off', 'grayscale', 'overlay'] as const).map((v) => (
+            <button key={v} type="button" role="radio" aria-checked={maskView === v} aria-pressed={maskView === v} onClick={() => setView(v)}>
+              {v === 'off' ? 'Image' : v === 'grayscale' ? 'Mask' : 'Overlay'}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className={panel.controlRow}>
+        <label className={controls.checkbox}>
+          <input type="checkbox" checked={mask.enabled} onChange={() => runCommand(editor, 'layer.toggleMask')} />
+          Enabled
+        </label>
+        <label className={controls.checkbox}>
+          <input type="checkbox" checked={mask.linked} onChange={() => toggleMaskLink(editor)} />
+          Linked
+        </label>
+      </div>
+      <div className={panel.controlRow}>
+        <Button className={optionStyles.small} onClick={() => runCommand(editor, 'layer.invertMask')}>
+          Invert
+        </Button>
+        <Button className={optionStyles.small} disabled={layer.type !== 'pixel'} onClick={() => runCommand(editor, 'layer.applyMask')}>
+          Apply
+        </Button>
+        <Button className={optionStyles.small} onClick={() => runCommand(editor, 'layer.deleteMask')}>
+          Delete
+        </Button>
+      </div>
+    </section>
+  );
+}
+
 function LayerSection({ layer }: { layer: Layer }) {
   const editor = useEditor();
   const scrub = useScrub();
@@ -152,6 +228,7 @@ export function PropertiesPanel() {
   return (
     <>
       {layer && <LayerSection layer={layer} />}
+      {layer && <MaskSection layer={layer} />}
       {layer && layer.type !== 'adjustment' && <TransformSection layer={layer} />}
       <section className={panel.section}>
         <h2 className={panel.sectionTitle}>Document</h2>

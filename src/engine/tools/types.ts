@@ -64,6 +64,8 @@ export interface Tool {
   onCancel?(): void;
   /** Return true if the key was consumed. */
   onKeyDown?(e: ToolKeyEvent): boolean;
+  /** Return true to receive this key before menu shortcuts (e.g. Backspace while drawing a polygon). */
+  capturesKey?(e: ToolKeyEvent): boolean;
   onKeyUp?(e: ToolKeyEvent): boolean;
   /** Draws interactive overlays; `ctx` is in device pixels, already cleared. */
   drawOverlay?(ctx: CanvasRenderingContext2D): void;

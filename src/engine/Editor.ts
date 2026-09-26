@@ -3,7 +3,7 @@ import { createGL, type GLCaps } from './gl/context';
 import { GPU } from './gl/gpu';
 import { SurfaceStore } from './surfaces/SurfaceStore';
 import { Compositor } from './render/Compositor';
-import { ViewRenderer } from './render/ViewRenderer';
+import { ViewRenderer, type PlacedCoverage } from './render/ViewRenderer';
 import { ThumbnailRenderer } from './render/Thumbnails';
 import { ViewController } from './view/ViewController';
 import { ToolManager } from './tools/ToolManager';
@@ -12,12 +12,15 @@ import { ZoomTool } from './tools/ZoomTool';
 import { MoveTool } from './tools/MoveTool';
 import { CropTool } from './tools/CropTool';
 import { TransformTool } from './tools/TransformTool';
+import { BrushTool, EyedropperTool } from './tools/BrushTool';
+import { LassoTool, MagicWandTool, MarqueeTool, PolygonLassoTool } from './tools/SelectionTools';
 import type { ToolId } from './tools/types';
 import { History, type HistorySnapshot, type PixelPatch } from './history/History';
 import { diffDocs } from './doc/diff';
-import { collectDocSurfaces, walkLayers } from './doc/layerTree';
+import { collectDocSurfaces, findLayer, walkLayers } from './doc/layerTree';
 import { createDocState, createPixelLayer } from './doc/factory';
-import type { DocState, Layer, RGB, SurfaceId, TextLayer } from './doc/types';
+import type { DocState, Layer, RGB, Selection, SurfaceId, TextLayer } from './doc/types';
+import type { ClipboardContent } from './actions/clipboardActions';
 import { DEFAULT_TOOL_OPTIONS, type Interaction, type ToolOptions } from './tools/options';
 import { translateRect, type Point, type Rect } from './geometry';
 import { addLayer } from './ops/layerOps';
@@ -38,7 +41,8 @@ export type DialogState =
   | { kind: 'about' }
   | { kind: 'shortcuts' }
   | { kind: 'imageSize' }
-  | { kind: 'canvasSize' };
+  | { kind: 'canvasSize' }
+  | { kind: 'feather' };
 
 export interface Notice {
   id: number;
@@ -67,6 +71,8 @@ export interface EditorState {
   toolOptions: ToolOptions;
   /** Numeric state of a modal interaction (Free Transform, Crop) for the options bar. */
   interaction: Interaction;
+  /** How the active layer's mask is visualised in the viewport. */
+  maskView: 'off' | 'grayscale' | 'overlay';
 }
 
 export interface EditorEvents extends Record<string, unknown> {
@@ -158,9 +164,15 @@ export class Editor {
 
   private frameHandle = 0;
   private overlayDirty = true;
+  private antsTimer = 0;
+  private antsPhase = 0;
   private lastDoc: DocState | null = null;
   private transaction: Transaction | null = null;
   private readonly pinnedSurfaces = new Set<SurfaceId>();
+  /** Pixels copied with Copy/Cut (kept alive while referenced). */
+  clipboard: ClipboardContent | null = null;
+  /** Selection before the last Deselect, for Reselect. */
+  lastSelection: Selection | null = null;
   /** Bounds of a text layer's rendered raster (provided by the text engine). */
   textBounds: ((layer: TextLayer) => Rect | null) | null = null;
 
@@ -200,6 +212,7 @@ export class Editor {
       background: { r: 255, g: 255, b: 255 },
       toolOptions: DEFAULT_TOOL_OPTIONS,
       interaction: null,
+      maskView: 'off',
     });
     this.history.onChange = () => {
       this.store.set({ history: this.history.snapshot() });
@@ -208,7 +221,15 @@ export class Editor {
 
     this.tools = new ToolManager(this);
     this.tools.register(new MoveTool(this));
+    this.tools.register(new MarqueeTool(this, 'marqueeRect'));
+    this.tools.register(new MarqueeTool(this, 'marqueeEllipse'));
+    this.tools.register(new LassoTool(this));
+    this.tools.register(new PolygonLassoTool(this));
+    this.tools.register(new MagicWandTool(this));
     this.tools.register(new CropTool(this));
+    this.tools.register(new EyedropperTool(this));
+    this.tools.register(new BrushTool(this, 'brush'));
+    this.tools.register(new BrushTool(this, 'eraser'));
     this.tools.register(new HandTool(this));
     this.tools.register(new ZoomTool(this));
     this.transformTool = new TransformTool(this);
@@ -281,6 +302,10 @@ export class Editor {
         checkB: CHECKER_B_RGB,
         checkSize: Math.round(8 * this.view.dpr),
         pixelGrid: this.store.get().showPixelGrid,
+        selection: this.selectionCoverageForView(),
+        maskView: this.maskViewForView(),
+        antsPhase: this.antsPhase,
+        dpr: this.view.dpr,
       },
     );
     if (this.overlayDirty) {
@@ -289,6 +314,55 @@ export class Editor {
     }
     this.events.emit('frame', undefined);
     if (this.tools.active.hasActiveGesture?.()) this.overlayDirty = true;
+  }
+
+  private selectionCoverageForView(): PlacedCoverage | null {
+    const sel = this.doc?.selection;
+    const s = sel ? this.surfaces.tryGet(sel.surfaceId) : undefined;
+    if (!sel || !s) return null;
+    return {
+      texture: this.surfaces.texture(sel.surfaceId),
+      x: sel.x,
+      y: sel.y,
+      width: s.width,
+      height: s.height,
+      defaultValue: sel.defaultValue / 255,
+    };
+  }
+
+  private maskViewForView(): { mode: 'grayscale' | 'overlay'; mask: PlacedCoverage } | null {
+    const mode = this.store.get().maskView;
+    const doc = this.doc;
+    if (mode === 'off' || !doc) return null;
+    const layer = findLayer(doc.layers, doc.activeLayerId);
+    const mask = layer?.mask;
+    const s = mask ? this.surfaces.tryGet(mask.surfaceId) : undefined;
+    if (!mask || !s) return null;
+    return {
+      mode,
+      mask: {
+        texture: this.surfaces.texture(mask.surfaceId),
+        x: mask.x,
+        y: mask.y,
+        width: s.width,
+        height: s.height,
+        defaultValue: mask.defaultValue / 255,
+      },
+    };
+  }
+
+  /** Animates marching ants while a selection exists. */
+  private updateAntsTimer(): void {
+    const has = Boolean(this.doc?.selection);
+    if (has && !this.antsTimer) {
+      this.antsTimer = window.setInterval(() => {
+        this.antsPhase = (this.antsPhase + 1) % 2;
+        this.requestRender();
+      }, 180);
+    } else if (!has && this.antsTimer) {
+      clearInterval(this.antsTimer);
+      this.antsTimer = 0;
+    }
   }
 
   private drawOverlay(): void {
@@ -330,6 +404,7 @@ export class Editor {
       this.view.setDocumentSize(doc.width, doc.height);
     }
     this.overlayDirty = true;
+    this.updateAntsTimer();
     this.requestRender();
   }
 
@@ -449,6 +524,7 @@ export class Editor {
     const live = new Set<SurfaceId>(this.pinnedSurfaces);
     const doc = this.doc;
     if (doc) collectDocSurfaces(doc, live);
+    if (this.lastSelection) live.add(this.lastSelection.surfaceId);
     this.history.referencedSurfaces(live);
     this.surfaces.collectGarbage(live);
     void this.evictHistorySurfaces();

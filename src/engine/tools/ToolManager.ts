@@ -242,6 +242,11 @@ export class ToolManager {
     this.editor.requestOverlay();
   }
 
+  /** True if the active tool wants this key before command shortcuts. */
+  capturesKey(e: KeyboardEvent): boolean {
+    return this.active.capturesKey?.(toToolKeyEvent(e)) ?? false;
+  }
+
   /** Global key handling for tools. Returns true if consumed. */
   handleKeyDown(e: KeyboardEvent): boolean {
     if (e.code === 'Space' && !e.repeat && !isModKey(e)) {

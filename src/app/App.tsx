@@ -11,6 +11,7 @@ import { Notices } from '../ui/notices/Notices';
 import { Button } from '../ui/controls/Button';
 import { imageFilesFromDataTransfer } from '../engine/io/decode';
 import { commandEnabled, commandForEvent, runCommand } from './commands';
+import { handlePastedFiles } from './clipboard';
 import { isEditableTarget } from './shortcuts';
 import styles from './App.module.css';
 
@@ -24,6 +25,10 @@ export function App() {
     const onKeyDown = (e: KeyboardEvent): void => {
       if (editor.store.get().dialog) return;
       if (isEditableTarget(e.target)) return;
+      if (editor.tools.capturesKey(e)) {
+        if (editor.tools.handleKeyDown(e)) e.preventDefault();
+        return;
+      }
       const command = commandForEvent(e);
       if (command) {
         e.preventDefault();
@@ -48,17 +53,14 @@ export function App() {
     };
   }, [editor]);
 
-  // Paste images from the system clipboard.
+  // Paste: images from the system clipboard, or pixels copied inside the editor.
   useEffect(() => {
     const onPaste = (e: ClipboardEvent): void => {
       if (isEditableTarget(e.target) || editor.store.get().dialog) return;
       const files = imageFilesFromDataTransfer(e.clipboardData);
-      if (files.length === 0) return;
+      if (files.length === 0 && !editor.clipboard) return;
       e.preventDefault();
-      const named = files.map((f) =>
-        f.name && f.name !== 'image.png' ? f : new File([f], 'Pasted Image.png', { type: f.type }),
-      );
-      void editor.importFiles(named, editor.doc ? 'place' : 'open');
+      void handlePastedFiles(editor, files);
     };
     window.addEventListener('paste', onPaste);
     return () => window.removeEventListener('paste', onPaste);

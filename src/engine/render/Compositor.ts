@@ -72,6 +72,8 @@ export interface LayerSourceProvider {
    * undefined to use the default.
    */
   sourceFor?(layer: Layer): DrawSource | null | undefined;
+  /** Replacement texture for a layer's mask (live mask painting). */
+  maskFor?(layer: Layer): WebGLTexture | undefined;
 }
 
 const TILE_SIZE = 1024;
@@ -187,7 +189,7 @@ export class Compositor {
           const override = this.overrideFor(layer);
           if (override === null) break;
           const source = override ?? this.pixelSource(layer);
-          if (source) this.drawSource(acc, source, layer.opacity, layer.blendMode, layer.mask);
+          if (source) this.drawSource(acc, source, layer.opacity, layer.blendMode, layer.mask, this.maskOverrideFor(layer));
           break;
         }
         case 'group':
@@ -195,7 +197,7 @@ export class Compositor {
           break;
         case 'text': {
           const source = this.overrideFor(layer);
-          if (source) this.drawSource(acc, source, layer.opacity, layer.blendMode, layer.mask);
+          if (source) this.drawSource(acc, source, layer.opacity, layer.blendMode, layer.mask, this.maskOverrideFor(layer));
           break;
         }
         case 'adjustment':
@@ -203,6 +205,15 @@ export class Compositor {
           break;
       }
     }
+  }
+
+  private maskOverrideFor(layer: Layer): WebGLTexture | undefined {
+    if (!layer.mask) return undefined;
+    for (const p of this.providers) {
+      const t = p.maskFor?.(layer);
+      if (t) return t;
+    }
+    return undefined;
   }
 
   private overrideFor(layer: Layer): DrawSource | null | undefined {
@@ -225,11 +236,11 @@ export class Compositor {
     };
   }
 
-  private bindMask(program: Program, mask: LayerMask | null, maskTransform?: Affine): void {
+  private bindMask(program: Program, mask: LayerMask | null, maskTransform?: Affine, maskTexture?: WebGLTexture): void {
     const gpu = this.gpu;
     if (mask && mask.enabled && this.surfaces.has(mask.surfaceId)) {
       const s = this.surfaces.get(mask.surfaceId);
-      gpu.bindTexture(2, this.surfaces.texture(mask.surfaceId));
+      gpu.bindTexture(2, maskTexture ?? this.surfaces.texture(mask.surfaceId));
       program
         .int('u_mask', 2)
         .int('u_hasMask', 1)
@@ -251,6 +262,7 @@ export class Compositor {
     opacity: number,
     blendMode: Layer['blendMode'],
     mask: LayerMask | null,
+    maskTexture?: WebGLTexture,
   ): void {
     if (opacity <= 0) return;
     if (source.transform && !invertAffine(source.transform)) return;
@@ -268,7 +280,7 @@ export class Compositor {
       gpu.bindTexture(0, source.texture);
       setSourceUniforms(program, source);
       program.vec2('u_regionOrigin', acc.region.x, acc.region.y).float('u_opacity', opacity);
-      this.bindMask(program, mask, source.maskTransform);
+      this.bindMask(program, mask, source.maskTransform, maskTexture);
       gpu.blendOver();
       gpu.drawRect(program, acc.rt, local);
       gpu.noBlend();
@@ -284,7 +296,7 @@ export class Compositor {
     gpu.bindTexture(1, acc.rt.texture);
     setSourceUniforms(program, source);
     program.int('u_backdrop', 1).vec2('u_regionOrigin', acc.region.x, acc.region.y).float('u_opacity', opacity);
-    this.bindMask(program, mask, source.maskTransform);
+    this.bindMask(program, mask, source.maskTransform, maskTexture);
     gpu.noBlend();
     gpu.drawRect(program, scratch, local);
     gpu.bindTexture(1, null);
@@ -316,7 +328,7 @@ export class Compositor {
         .int('u_b', 1)
         .vec2('u_regionOrigin', acc.region.x, acc.region.y)
         .float('u_opacity', group.opacity);
-      this.bindMask(program, group.mask);
+      this.bindMask(program, group.mask, undefined, this.maskOverrideFor(group));
       gpu.noBlend();
       gpu.drawRect(program, out, full);
       gpu.bindTexture(0, null);
@@ -342,6 +354,7 @@ export class Compositor {
       group.opacity,
       group.blendMode,
       group.mask,
+      this.maskOverrideFor(group),
     );
     gpu.pool.release(inner.rt);
   }

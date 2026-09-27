@@ -139,9 +139,17 @@ export interface GroupLayer extends LayerCommon {
 export type Layer = PixelLayer | TextLayer | AdjustmentLayer | GroupLayer;
 export type LayerType = Layer['type'];
 
-/** Selection as a document-sized coverage mask (R8). `bounds` tightly encloses coverage > 0. */
+/**
+ * Selection as a single-channel coverage surface (R8, 0..255) placed at (x, y) in
+ * document space. Outside the surface, coverage is `defaultValue` (0, or 255 for
+ * inverted selections), mirroring how layer masks are stored. `bounds` conservatively
+ * encloses all selected (coverage > 0) document pixels, clamped to the canvas.
+ */
 export interface Selection {
   surfaceId: SurfaceId;
+  x: number;
+  y: number;
+  defaultValue: number;
   bounds: Rect;
 }
 

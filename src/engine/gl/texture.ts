@@ -1,4 +1,4 @@
-export type TextureFormat = 'rgba8' | 'r8' | 'rgba16f';
+export type TextureFormat = 'rgba8' | 'r8' | 'rgba16f' | 'r16f';
 
 export interface FormatInfo {
   internalFormat: number;
@@ -16,12 +16,14 @@ export function formatInfo(gl: WebGL2RenderingContext, format: TextureFormat): F
       return { internalFormat: gl.R8, format: gl.RED, type: gl.UNSIGNED_BYTE, bytesPerPixel: 1 };
     case 'rgba16f':
       return { internalFormat: gl.RGBA16F, format: gl.RGBA, type: gl.HALF_FLOAT, bytesPerPixel: 8 };
+    case 'r16f':
+      return { internalFormat: gl.R16F, format: gl.RED, type: gl.HALF_FLOAT, bytesPerPixel: 2 };
   }
 }
 
 /** GPU memory estimate in bytes for a texture (mip chains add ~1/3). */
 export function textureBytes(format: TextureFormat, width: number, height: number, mipmapped = false): number {
-  const bpp = format === 'r8' ? 1 : format === 'rgba8' ? 4 : 8;
+  const bpp = format === 'r8' ? 1 : format === 'r16f' ? 2 : format === 'rgba8' ? 4 : 8;
   const base = width * height * bpp;
   return mipmapped ? Math.ceil(base * (4 / 3)) : base;
 }

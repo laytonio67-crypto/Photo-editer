@@ -35,12 +35,14 @@ vec3 unpremultiply(vec4 c) {
 // Samples a single-channel mask placed at u_maskRect.xy (document space) with size
 // u_maskRect.zw. Outside that rect the mask has value u_maskDefault.
 uniform sampler2D u_mask;
-uniform vec4 u_maskRect;
+uniform vec4 u_maskRect;       // mask placement (x, y) and size (w, h)
 uniform float u_maskDefault;
 uniform int u_hasMask;
+uniform int u_maskTransformed; // 1: u_maskInv maps document px → mask px (live previews)
+uniform mat3 u_maskInv;
 float sampleMask(vec2 docPx) {
   if (u_hasMask == 0) return 1.0;
-  vec2 local = docPx - u_maskRect.xy;
+  vec2 local = u_maskTransformed == 1 ? (u_maskInv * vec3(docPx, 1.0)).xy : docPx - u_maskRect.xy;
   if (local.x < 0.0 || local.y < 0.0 || local.x >= u_maskRect.z || local.y >= u_maskRect.w) {
     return u_maskDefault;
   }

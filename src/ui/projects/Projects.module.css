@@ -1,0 +1,140 @@
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+  max-height: 420px;
+  overflow: auto;
+  padding: 2px;
+}
+
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+  cursor: default;
+  outline: none;
+}
+
+.card:hover {
+  border-color: var(--text-3);
+}
+
+.card[aria-selected='true'] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.card:focus-visible {
+  box-shadow: 0 0 0 2px var(--border-focus);
+}
+
+.thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 110px;
+  border-bottom: 1px solid var(--border);
+  background: repeating-conic-gradient(#2d2f34 0% 25%, #26282c 0% 50%) 50% / 16px 16px;
+  color: var(--text-3);
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  overflow: hidden;
+}
+
+.thumb img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 8px 8px;
+  min-width: 0;
+}
+
+.name {
+  color: var(--text-0);
+  font-size: var(--fs-md);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meta {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.delete {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  background: rgba(20, 21, 23, 0.8);
+}
+
+.empty {
+  margin: 8px 0;
+  color: var(--text-2);
+  line-height: 1.5;
+}
+
+.error {
+  margin: 0 0 8px;
+  color: var(--danger);
+}
+
+.usage {
+  flex: 1;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+
+/* Recent projects on the start screen. */
+.recent {
+  margin-top: 22px;
+  text-align: left;
+}
+
+.recentTitle {
+  margin: 0 0 8px;
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.recentList {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.recentItem {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+  color: inherit;
+  text-align: left;
+  overflow: hidden;
+}
+
+.recentItem:hover {
+  border-color: var(--text-3);
+}
+
+.recentItem .thumb {
+  height: 74px;
+}

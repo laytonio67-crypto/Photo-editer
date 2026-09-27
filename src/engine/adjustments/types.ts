@@ -85,6 +85,8 @@ export interface ShadowsHighlightsAdjustment {
   shadows: number;
   /** -100..100: recover (-) or boost (+) highlights */
   highlights: number;
+  /** Size in px of the neighbourhood that decides what counts as shadow or highlight. */
+  radius: number;
 }
 
 export interface BlackWhiteAdjustment {

@@ -1,20 +1,33 @@
+import { CloneTool } from './tools/CloneTool';
+import { TextRenderer } from './text/TextRenderer';
+import { TextTool } from './tools/TextTool';
+import { Exporter } from './io/exportImage';
+import { ProjectStore } from './io/ProjectStore';
+import { HistogramService } from './histogram/HistogramService';
 import { Emitter, Store } from './store';
 import { createGL, type GLCaps } from './gl/context';
 import { GPU } from './gl/gpu';
 import { SurfaceStore } from './surfaces/SurfaceStore';
 import { Compositor } from './render/Compositor';
-import { ViewRenderer } from './render/ViewRenderer';
+import { ViewRenderer, type PlacedCoverage } from './render/ViewRenderer';
 import { ThumbnailRenderer } from './render/Thumbnails';
 import { ViewController } from './view/ViewController';
 import { ToolManager } from './tools/ToolManager';
 import { HandTool } from './tools/HandTool';
 import { ZoomTool } from './tools/ZoomTool';
+import { MoveTool } from './tools/MoveTool';
+import { CropTool } from './tools/CropTool';
+import { TransformTool } from './tools/TransformTool';
+import { BrushTool, EyedropperTool } from './tools/BrushTool';
+import { LassoTool, MagicWandTool, MarqueeTool, PolygonLassoTool } from './tools/SelectionTools';
 import type { ToolId } from './tools/types';
 import { History, type HistorySnapshot, type PixelPatch } from './history/History';
 import { diffDocs } from './doc/diff';
-import { collectDocSurfaces, walkLayers } from './doc/layerTree';
+import { collectDocSurfaces, findLayer, walkLayers } from './doc/layerTree';
 import { createDocState, createPixelLayer } from './doc/factory';
-import type { DocState, Layer, RGB, SurfaceId } from './doc/types';
+import type { DocState, Layer, RGB, Selection, SurfaceId, TextLayer } from './doc/types';
+import type { ClipboardContent } from './actions/clipboardActions';
+import { DEFAULT_TOOL_OPTIONS, type Interaction, type ToolOptions } from './tools/options';
 import { translateRect, type Point, type Rect } from './geometry';
 import { addLayer } from './ops/layerOps';
 import { baseName, decodeImage, downscaleBitmap, ImageDecodeError } from './io/decode';
@@ -32,7 +45,13 @@ export type DialogState =
       resolve: (ok: boolean) => void;
     }
   | { kind: 'about' }
-  | { kind: 'shortcuts' };
+  | { kind: 'shortcuts' }
+  | { kind: 'imageSize' }
+  | { kind: 'canvasSize' }
+  | { kind: 'feather' }
+  | { kind: 'export' }
+  | { kind: 'saveProject'; saveAs: boolean }
+  | { kind: 'projects' };
 
 export interface Notice {
   id: number;
@@ -58,12 +77,23 @@ export interface EditorState {
   fatalError: string | null;
   foreground: RGB;
   background: RGB;
+  toolOptions: ToolOptions;
+  /** Numeric state of a modal interaction (Free Transform, Crop) for the options bar. */
+  interaction: Interaction;
+  /** How the active layer's mask is visualised in the viewport. */
+  maskView: 'off' | 'grayscale' | 'overlay';
+  /** Text layer being edited with the Text tool. */
+  textEditing: { layerId: string; isNew: boolean } | null;
+  /** Saved project the open document belongs to (null until it is saved). */
+  project: { id: string; name: string } | null;
 }
 
 export interface EditorEvents extends Record<string, unknown> {
   cursor: Point | null;
   surfaceChanged: SurfaceId;
   frame: undefined;
+  /** Asks the UI to bring an inspector panel to the front. */
+  revealPanel: 'properties' | 'history';
 }
 
 export type BackgroundFill = 'white' | 'black' | 'transparent' | { color: RGB };
@@ -124,6 +154,9 @@ export class Transaction {
 
 let noticeId = 0;
 
+/** GPU memory allowed for layer/mask surfaces before history-only ones are evicted. */
+const GPU_SURFACE_BUDGET = 1024 * 1024 * 1024;
+
 /**
  * Composition root of the editing engine. Owns the WebGL context and every engine
  * subsystem; React talks to it through `store` (state) and methods (commands).
@@ -137,17 +170,31 @@ export class Editor {
   readonly gpu: GPU;
   readonly surfaces: SurfaceStore;
   readonly compositor: Compositor;
+  readonly histograms: HistogramService;
+  readonly text: TextRenderer;
+  readonly exporter: Exporter;
+  readonly projects: ProjectStore;
   readonly viewRenderer: ViewRenderer;
   readonly thumbnails: ThumbnailRenderer;
   readonly view = new ViewController();
   readonly tools: ToolManager;
   readonly history: History;
+  readonly transformTool: TransformTool;
+  readonly textTool: TextTool;
 
   private frameHandle = 0;
   private overlayDirty = true;
+  private antsTimer = 0;
+  private antsPhase = 0;
   private lastDoc: DocState | null = null;
   private transaction: Transaction | null = null;
   private readonly pinnedSurfaces = new Set<SurfaceId>();
+  /** Pixels copied with Copy/Cut (kept alive while referenced). */
+  clipboard: ClipboardContent | null = null;
+  /** Selection before the last Deselect, for Reselect. */
+  lastSelection: Selection | null = null;
+  /** Bounds of a text layer's rendered raster (provided by the text engine). */
+  textBounds: ((layer: TextLayer) => Rect | null) | null = null;
 
   constructor() {
     this.canvas = document.createElement('canvas');
@@ -159,6 +206,22 @@ export class Editor {
     this.gpu = new GPU(gl, caps);
     this.surfaces = new SurfaceStore(gl, caps.maxDocumentSize);
     this.compositor = new Compositor(this.gpu, this.surfaces);
+    this.histograms = new HistogramService(this.gpu, this.compositor);
+    this.text = new TextRenderer(
+      this.gpu,
+      () => {
+        const doc = this.doc;
+        return { x: 0, y: 0, width: doc?.width ?? 0, height: doc?.height ?? 0 };
+      },
+      () => {
+        this.compositor.invalidate();
+        this.requestRender();
+      },
+    );
+    this.compositor.textSource = (layer) => this.text.sourceFor(layer);
+    this.exporter = new Exporter(this);
+    this.projects = new ProjectStore(this);
+    this.textBounds = (layer) => this.text.bounds(layer);
     this.viewRenderer = new ViewRenderer(this.gpu);
     this.thumbnails = new ThumbnailRenderer(this.gpu);
 
@@ -183,6 +246,11 @@ export class Editor {
       fatalError: null,
       foreground: { r: 0, g: 0, b: 0 },
       background: { r: 255, g: 255, b: 255 },
+      toolOptions: DEFAULT_TOOL_OPTIONS,
+      interaction: null,
+      maskView: 'off',
+      textEditing: null,
+      project: null,
     });
     this.history.onChange = () => {
       this.store.set({ history: this.history.snapshot() });
@@ -190,9 +258,23 @@ export class Editor {
     };
 
     this.tools = new ToolManager(this);
+    this.tools.register(new MoveTool(this));
+    this.tools.register(new MarqueeTool(this, 'marqueeRect'));
+    this.tools.register(new MarqueeTool(this, 'marqueeEllipse'));
+    this.tools.register(new LassoTool(this));
+    this.tools.register(new PolygonLassoTool(this));
+    this.tools.register(new MagicWandTool(this));
+    this.tools.register(new CropTool(this));
+    this.tools.register(new EyedropperTool(this));
+    this.tools.register(new BrushTool(this, 'brush'));
+    this.tools.register(new BrushTool(this, 'eraser'));
+    this.tools.register(new CloneTool(this, 'cloneStamp'));
+    this.tools.register(new CloneTool(this, 'healingBrush'));
     this.tools.register(new HandTool(this));
     this.tools.register(new ZoomTool(this));
-    this.store.set({ tool: 'hand' });
+    this.transformTool = new TransformTool(this);
+    this.textTool = new TextTool(this);
+    this.tools.register(this.textTool);
 
     this.store.subscribe(() => this.onStateChange());
     this.view.events.on('change', (t) => {
@@ -262,6 +344,10 @@ export class Editor {
         checkB: CHECKER_B_RGB,
         checkSize: Math.round(8 * this.view.dpr),
         pixelGrid: this.store.get().showPixelGrid,
+        selection: this.selectionCoverageForView(),
+        maskView: this.maskViewForView(),
+        antsPhase: this.antsPhase,
+        dpr: this.view.dpr,
       },
     );
     if (this.overlayDirty) {
@@ -270,6 +356,55 @@ export class Editor {
     }
     this.events.emit('frame', undefined);
     if (this.tools.active.hasActiveGesture?.()) this.overlayDirty = true;
+  }
+
+  private selectionCoverageForView(): PlacedCoverage | null {
+    const sel = this.doc?.selection;
+    const s = sel ? this.surfaces.tryGet(sel.surfaceId) : undefined;
+    if (!sel || !s) return null;
+    return {
+      texture: this.surfaces.texture(sel.surfaceId),
+      x: sel.x,
+      y: sel.y,
+      width: s.width,
+      height: s.height,
+      defaultValue: sel.defaultValue / 255,
+    };
+  }
+
+  private maskViewForView(): { mode: 'grayscale' | 'overlay'; mask: PlacedCoverage } | null {
+    const mode = this.store.get().maskView;
+    const doc = this.doc;
+    if (mode === 'off' || !doc) return null;
+    const layer = findLayer(doc.layers, doc.activeLayerId);
+    const mask = layer?.mask;
+    const s = mask ? this.surfaces.tryGet(mask.surfaceId) : undefined;
+    if (!mask || !s) return null;
+    return {
+      mode,
+      mask: {
+        texture: this.surfaces.texture(mask.surfaceId),
+        x: mask.x,
+        y: mask.y,
+        width: s.width,
+        height: s.height,
+        defaultValue: mask.defaultValue / 255,
+      },
+    };
+  }
+
+  /** Animates marching ants while a selection exists. */
+  private updateAntsTimer(): void {
+    const has = Boolean(this.doc?.selection);
+    if (has && !this.antsTimer) {
+      this.antsTimer = window.setInterval(() => {
+        this.antsPhase = (this.antsPhase + 1) % 2;
+        this.requestRender();
+      }, 180);
+    } else if (!has && this.antsTimer) {
+      clearInterval(this.antsTimer);
+      this.antsTimer = 0;
+    }
   }
 
   private drawOverlay(): void {
@@ -294,6 +429,7 @@ export class Editor {
       const s = this.surfaces.tryGet(layer.surfaceId);
       return s ? { x: layer.x, y: layer.y, width: s.width, height: s.height } : { x: 0, y: 0, width: 0, height: 0 };
     }
+    if (layer.type === 'text') return this.text.bounds(layer) ?? { x: 0, y: 0, width: 0, height: 0 };
     return 'full';
   };
 
@@ -311,6 +447,7 @@ export class Editor {
       this.view.setDocumentSize(doc.width, doc.height);
     }
     this.overlayDirty = true;
+    this.updateAntsTimer();
     this.requestRender();
   }
 
@@ -379,12 +516,29 @@ export class Editor {
     return this.transaction !== null;
   }
 
+  private edits = 0;
+
+  /** Increases with every recorded edit (lets async saves tell if the document changed). */
+  get editVersion(): number {
+    return this.edits;
+  }
+
   markModified(): void {
+    this.edits++;
     if (!this.store.get().modified) this.store.set({ modified: true });
+  }
+
+  /** Aborts a modal interaction (Free Transform) without applying it. */
+  cancelMode(): void {
+    this.tools.activeMode?.onCancelRequest?.();
   }
 
   async undo(): Promise<void> {
     this.tools.cancelGesture();
+    if (this.tools.activeMode) {
+      this.cancelMode();
+      return;
+    }
     if (this.transaction) return;
     await this.history.undo((doc) => this.replaceDoc(doc));
     this.markModified();
@@ -392,6 +546,7 @@ export class Editor {
 
   async redo(): Promise<void> {
     this.tools.cancelGesture();
+    this.cancelMode();
     if (this.transaction) return;
     await this.history.redo((doc) => this.replaceDoc(doc));
     this.markModified();
@@ -399,6 +554,7 @@ export class Editor {
 
   async goToHistory(position: number): Promise<void> {
     this.tools.cancelGesture();
+    this.cancelMode();
     if (this.transaction) return;
     await this.history.goTo(position, (doc) => this.replaceDoc(doc));
     this.markModified();
@@ -419,19 +575,55 @@ export class Editor {
     const live = new Set<SurfaceId>(this.pinnedSurfaces);
     const doc = this.doc;
     if (doc) collectDocSurfaces(doc, live);
+    if (this.lastSelection) live.add(this.lastSelection.surfaceId);
     this.history.referencedSurfaces(live);
     this.surfaces.collectGarbage(live);
+    const layerIds = new Set<string>();
+    if (doc) walkLayers(doc.layers, (l) => void layerIds.add(l.id));
+    this.text.prune(layerIds);
+    void this.evictHistorySurfaces();
+  }
+
+  private evicting = false;
+
+  /**
+   * Moves surfaces referenced only by history (not by the current document) from the
+   * GPU to CPU memory, least recently used first, while GPU usage exceeds the budget.
+   * Undo re-uploads them on demand.
+   */
+  private async evictHistorySurfaces(): Promise<void> {
+    if (this.evicting) return;
+    const budget = GPU_SURFACE_BUDGET;
+    if (this.surfaces.gpuBytes() <= budget) return;
+    this.evicting = true;
+    try {
+      for (const s of this.surfaces.lruOrder()) {
+        if (this.surfaces.gpuBytes() <= budget) break;
+        const doc = this.doc;
+        const inUse = new Set<SurfaceId>(this.pinnedSurfaces);
+        if (doc) collectDocSurfaces(doc, inUse);
+        if (!s.target || inUse.has(s.id)) continue;
+        await this.surfaces.evict(s.id);
+      }
+    } catch (err) {
+      console.warn('Surface eviction failed', err);
+    } finally {
+      this.evicting = false;
+    }
   }
 
   // ------------------------------------------------------ document lifecycle
 
   /** Installs a brand-new document, resetting history and fitting the view. */
   private installDocument(doc: DocState, baseLabel: string): void {
+    this.textTool.cancel();
     this.tools.cancelGesture();
+    this.cancelMode();
     this.transaction?.cancel();
     this.replaceDoc(doc);
     this.history.reset(baseLabel);
-    this.store.set({ modified: false });
+    this.store.set({ modified: false, project: null });
+    this.projects.detach();
     this.view.setDocumentSize(doc.width, doc.height);
     this.view.fitNoUpscale();
     this.collectGarbage();
@@ -477,6 +669,12 @@ export class Editor {
       layers: [layer],
     });
     this.installDocument(doc, 'New Document');
+  }
+
+  /** Installs a document restored from a saved project (see ProjectStore.open). */
+  openProjectDocument(doc: DocState, project: { id: string; name: string }): void {
+    this.installDocument(doc, 'Open Project');
+    this.store.set({ project });
   }
 
   /** Opens a decoded image as a new document with a single layer. */
@@ -548,11 +746,14 @@ export class Editor {
 
   async closeDocument(): Promise<void> {
     if (!(await this.confirmDiscard('close the document'))) return;
+    this.textTool.cancel();
     this.tools.cancelGesture();
+    this.cancelMode();
     this.transaction?.cancel();
     this.replaceDoc(null);
     this.history.reset('Open');
-    this.store.set({ modified: false });
+    this.store.set({ modified: false, project: null });
+    this.projects.detach();
     this.collectGarbage();
   }
 
@@ -617,6 +818,11 @@ export class Editor {
         },
       });
     });
+  }
+
+  /** Updates options of one tool, e.g. setToolOptions('crop', { ratio: '1:1' }). */
+  setToolOptions<K extends keyof ToolOptions>(tool: K, patch: Partial<ToolOptions[K]>): void {
+    this.store.set((s) => ({ toolOptions: { ...s.toolOptions, [tool]: { ...s.toolOptions[tool], ...patch } } }));
   }
 
   setColors(colors: { foreground?: RGB; background?: RGB }): void {

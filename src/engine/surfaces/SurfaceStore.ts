@@ -71,9 +71,9 @@ export class SurfaceStore {
     }
   }
 
-  private register(width: number, height: number, format: SurfaceFormat, target: RenderTarget): Surface {
+  private register(width: number, height: number, format: SurfaceFormat, target: RenderTarget, id?: SurfaceId): Surface {
     const surface: Surface = {
-      id: createId('srf'),
+      id: id && !this.surfaces.has(id) ? id : createId('srf'),
       width,
       height,
       format,
@@ -99,8 +99,11 @@ export class SurfaceStore {
     return this.register(width, height, format, target);
   }
 
-  /** New surface from raw pixel data (premultiplied RGBA8 or R8, top-down rows). */
-  createFromPixels(width: number, height: number, format: SurfaceFormat, data: Uint8Array): Surface {
+  /**
+   * New surface from raw pixel data (premultiplied RGBA8 or R8, top-down rows).
+   * `preferredId` keeps a stored id (projects) unless that id is already in use.
+   */
+  createFromPixels(width: number, height: number, format: SurfaceFormat, data: Uint8Array, preferredId?: SurfaceId): Surface {
     this.checkSize(width, height);
     const expected = width * height * (format === 'rgba8' ? 4 : 1);
     if (data.length !== expected) {
@@ -108,7 +111,7 @@ export class SurfaceStore {
     }
     const target = new RenderTarget(this.gl, width, height, format);
     this.upload(target, { x: 0, y: 0, width, height }, data);
-    return this.register(width, height, format, target);
+    return this.register(width, height, format, target, preferredId);
   }
 
   /**
@@ -315,15 +318,18 @@ export class SurfaceStore {
    * Moves a GPU-resident surface to CPU memory to free GPU memory. Used for surfaces
    * only referenced by history.
    */
-  async evict(id: SurfaceId): Promise<void> {
+  async evict(id: SurfaceId): Promise<boolean> {
     const s = this.surfaces.get(id);
-    if (!s || !s.target) return;
+    if (!s || !s.target) return false;
+    const version = s.version;
     const data = await this.read(id);
-    // The surface may have been deleted or re-targeted while the read was in flight.
-    if (this.surfaces.get(id) !== s || !s.target) return;
+    // Abort if the surface was deleted, modified or re-created while the read was in
+    // flight: the snapshot would be stale.
+    if (this.surfaces.get(id) !== s || !s.target || s.version !== version) return false;
     s.cpu = data;
     s.target.dispose();
     s.target = null;
+    return true;
   }
 
   /** Bytes of GPU memory held by resident surfaces. */

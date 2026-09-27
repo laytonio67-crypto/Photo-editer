@@ -73,6 +73,17 @@ export class GPU {
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
   }
 
+  /**
+   * Premultiplied source-atop: colour lands only where the destination has alpha, and
+   * destination alpha is kept (clipping masks).
+   */
+  blendAtop(): void {
+    const gl = this.gl;
+    gl.enable(gl.BLEND);
+    gl.blendEquation(gl.FUNC_ADD);
+    gl.blendFuncSeparate(gl.DST_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ZERO, gl.ONE);
+  }
+
   noBlend(): void {
     this.gl.disable(this.gl.BLEND);
   }

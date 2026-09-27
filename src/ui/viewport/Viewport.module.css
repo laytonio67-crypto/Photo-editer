@@ -41,15 +41,54 @@
 }
 
 .stage {
+  grid-row: 1;
+  grid-column: 1;
   position: relative;
   overflow: hidden;
   touch-action: none;
   outline: none;
 }
 
-.viewport[data-rulers='true'] .stage {
+.viewport[data-rulers='true'] .stage,
+.viewport[data-rulers='true'] .textLayer {
   grid-row: 2;
   grid-column: 2;
+}
+
+/* Text editing overlay: same cell as the stage, transparent to pointer input. */
+.textLayer {
+  grid-row: 1;
+  grid-column: 1;
+  position: relative;
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.textInput {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  box-sizing: content-box;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: transparent;
+  resize: none;
+  overflow: hidden;
+  white-space: pre;
+  overflow-wrap: normal;
+  font-kerning: normal;
+  pointer-events: auto;
+  cursor: text;
+}
+
+.textInput::selection {
+  background: rgba(61, 134, 245, 0.38);
+  color: transparent;
 }
 
 .start {

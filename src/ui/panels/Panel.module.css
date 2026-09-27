@@ -16,6 +16,27 @@
   border-top: 1px solid var(--border-strong);
 }
 
+/* Drag handle between the inspector and the layers panel. */
+.splitter {
+  flex: none;
+  height: 5px;
+  margin: -2px 0;
+  position: relative;
+  z-index: 1;
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.splitter:hover,
+.splitter:focus-visible {
+  background: var(--accent-soft);
+  outline: none;
+}
+
+.splitter + .panel {
+  border-top: 1px solid var(--border-strong);
+}
+
 .header {
   display: flex;
   align-items: center;

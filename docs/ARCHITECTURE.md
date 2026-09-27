@@ -45,9 +45,22 @@ target, bottom to top:
   backdrop (mixed back by opacity × mask when needed).
 * **Adjustment layers** — a shader transforms the current backdrop; the result replaces
   the backdrop colour weighted by mask × opacity through the layer's blend mode. Alpha is
-  preserved, as in Photoshop.
-* **Neighbourhood filters** (blur, sharpen) expand the region that is rendered so region
-  borders stay correct.
+  preserved, as in Photoshop. The accumulator is swapped for the adjusted copy, so
+  nothing is copied back. Point operations run in one pass; Levels and Curves sample a
+  256-entry RGBA16F LUT built on the CPU (cached per parameter object, LRU). The GLSL
+  mirrors a CPU reference (`adjustments/math.ts`) that the browser tests compare against.
+* **Neighbourhood filters** (Gaussian blur, sharpen, shadows/highlights) first blur the
+  accumulator with a separable Gaussian (paired bilinear taps, edges repeat). Each filter
+  declares its reach; the stack's total reach expands both the dirty rectangle and the
+  region that is rendered, and only the requested part is kept — so results are
+  identical across tile borders and after partial updates. A plain Normal-mode blur also
+  blurs coverage (cut-out edges soften); other modes keep alpha.
+* **Clipping masks** — a run of `clipped` siblings forms a group with the layer below
+  (the base): the base is drawn at full strength into an isolated buffer (its mask shapes
+  the clip), clipped layers are drawn source-atop (fixed-function
+  `DST_ALPHA, ONE_MINUS_SRC_ALPHA` for Normal, a shader variant for other modes), and the
+  result is composited with the base's opacity and blend mode. A hidden base hides the
+  whole group; adjustment layers cannot be bases.
 
 The document composite texture is updated incrementally: edits invalidate dirty
 rectangles and only those regions are recomposited. Blend formulas follow the W3C
@@ -107,23 +120,70 @@ Each entry stores `{ label, before: DocState, after: DocState, patches[] }`.
   controllers. React subscribes to a small external store via `useSyncExternalStore`
   with selectors, so pointer moves and zooming never re-render panels.
 * Tools implement a `Tool` interface (pointer down/move/up, key handling, overlay
-  drawing, cursor). Temporary tools (Space → Hand, Alt → Eyedropper while painting) are
-  handled by the tool manager.
-* Brush engine: input smoothing → spline interpolation → spacing-based dab placement with
-  pressure. Dabs are rendered on the GPU into a stroke coverage buffer using flow
-  build-up; the stroke is composited live at `coverage × opacity` and merged into the
-  target surface on pointer-up (Photoshop opacity/flow semantics). Eraser, mask painting
-  and clone stamp reuse the same engine with different merge shaders. The healing brush
-  adds a Laplace membrane solve (worker) that matches the cloned patch to its surroundings.
+  drawing, cursor). Temporary tools (Space → Hand, middle-button pan) are handled by the
+  tool manager.
+* Brush engine (`StrokeTool`): input smoothing → spline interpolation → spacing-based dab
+  placement with pressure. Dabs are rendered on the GPU into a stroke coverage buffer
+  using flow build-up; the stroke is composited live at `coverage × opacity` into a
+  preview that the compositor shows instead of the layer, and merged into the target
+  surface on pointer-up as one undo step (Photoshop opacity/flow semantics). Brush,
+  eraser, mask painting, clone stamp and healing brush are subclasses that only differ in
+  how a stroke is prepared and finished.
+* Clone stamp: Alt-click sets the source; strokes sample the untouched layer surface (or
+  a snapshot of the composite for "all layers") at a whole-pixel offset, aligned across
+  strokes or restarting at the source.
+* Healing brush: on release the cloned patch is corrected by a membrane `m` with Δm = 0
+  inside the stroke and `m = dst − src` on its border (Poisson/seamless cloning). The
+  solve runs on the GPU in half-float targets: boundary values are averaged into a
+  pyramid, the coarsest level is relaxed first, and each finer level starts from the
+  upsampled solution and is refined with red-black over-relaxation.
+
+### Text
+
+Text layers store only the vector description (content, font, size, weight, italic,
+colour, alignment, line height, tracking, position, rotation, scale). `TextRenderer`
+lays lines out with CSS line-box metrics (half-leading around the font's ascent and
+descent) and rasterises them with Canvas 2D directly at their final transform, so glyphs
+stay sharp after scaling or rotation; rasters are caches keyed by every input and
+pruned with the document. The Text tool edits in place: a transparent textarea with the
+same font metrics is CSS-transformed onto the rendered glyphs, so the browser supplies
+caret, selection, IME and keyboard editing while the engine renders the text. An
+editing session is one transaction and one history entry. Free Transform folds into
+the layer's rotation/scale; Rasterize converts a text layer into pixels.
+
+### Export
+
+The composite is (optionally) resized on the GPU with edge clamping, read back through
+a PBO, un-premultiplied or flattened onto a matte, and encoded in a worker. PNG uses our
+own encoder (adaptive row filters + zlib via `CompressionStream`, sRGB and pHYs chunks),
+so exports are bit-exact and keep the document resolution; JPEG and WebP use the
+browser's encoders (the JPEG's JFIF density is patched to the document resolution). The
+dialog shows the real encoded size before exporting.
+
+### Histograms
+
+`HistogramService` measures either the composite or an adjustment layer's input (the
+tree with that layer and everything above it removed, rendered tile by tile). Tiles are
+point-sampled on a grid aligned to the document (at most 2²⁰ samples; averaging would
+narrow the distribution), read back asynchronously through a PBO, and binned in a
+worker. The Levels and Curves editors recompute only when something below the layer
+changes, not when their own parameters do.
 
 ## 5. Workers & persistence
 
-* Workers: histogram computation, magic-wand flood fill, healing solve, export encoding,
-  project compression/decompression.
-* IndexedDB (`projects`, `documents`, `surfaces` stores). Surfaces are stored as raw
-  premultiplied pixels, delta-filtered and deflate-compressed — an exact round trip that
-  avoids browser codec colour management. Saves are incremental: only surfaces whose
-  version changed are rewritten.
+* Workers: histogram binning, magic-wand flood fill, export encoding, project
+  compression/decompression.
+* IndexedDB database `emulsion` with three stores: `projects` (listing metadata and a
+  PNG thumbnail), `documents` (the DocState: layer tree, parameters, text, adjustments,
+  selection reference) and `surfaces` (pixels keyed by `[projectId, surfaceId]`).
+  Surfaces are stored exactly as the GPU holds them (premultiplied RGBA8 or R8), with
+  PNG-style adaptive row filters and raw deflate — a bit-exact round trip without
+  colour conversion. Everything for one save is written in one transaction.
+* Saves are incremental: the store remembers which surface versions it wrote, so a save
+  only re-encodes surfaces that changed (a property edit writes no pixels) and deletes
+  records no longer referenced. Opening validates the stored document (format version,
+  structure, presence of every surface) and keeps surface ids so later saves stay
+  incremental.
 
 ## 6. Phases
 

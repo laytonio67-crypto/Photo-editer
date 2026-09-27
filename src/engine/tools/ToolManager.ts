@@ -24,6 +24,8 @@ export class ToolManager {
   private pointerId: number | null = null;
   private lastEvent: ToolPointerEvent | null = null;
   private hovering = false;
+  /** Modal interaction (e.g. Free Transform) that receives input instead of the tool. */
+  private mode: Tool | null = null;
 
   constructor(private readonly editor: Editor) {}
 
@@ -43,8 +45,29 @@ export class ToolManager {
   get active(): Tool {
     if (this.gestureTool) return this.gestureTool;
     if (this.spaceHeld) return this.tools.get('hand')!;
+    if (this.mode) return this.mode;
+    return this.current;
+  }
+
+  /** The selected toolbar tool (ignoring modes and temporary tools). */
+  get current(): Tool {
     const id = this.editor.store.get().tool;
     return this.tools.get(id) ?? this.tools.get('hand')!;
+  }
+
+  get activeMode(): Tool | null {
+    return this.mode;
+  }
+
+  /** Enters/leaves a modal interaction. */
+  setMode(mode: Tool | null): void {
+    if (this.mode === mode) return;
+    if (this.gestureTool) this.cancelGesture();
+    this.mode?.deactivate?.();
+    this.mode = mode;
+    mode?.activate?.();
+    this.refreshCursor();
+    this.editor.requestOverlay();
   }
 
   get isPressed(): boolean {
@@ -58,6 +81,8 @@ export class ToolManager {
 
   setTool(id: ToolId): void {
     if (!this.tools.has(id)) return;
+    // Leaving a modal interaction commits it (like pro editors' "apply" default).
+    if (this.mode) this.mode.onCommitRequest?.();
     const prev = this.editor.store.get().tool;
     if (prev === id) return;
     if (this.gestureTool) this.cancelGesture();
@@ -215,6 +240,11 @@ export class ToolManager {
     tool?.onCancel?.();
     this.refreshCursor();
     this.editor.requestOverlay();
+  }
+
+  /** True if the active tool wants this key before command shortcuts. */
+  capturesKey(e: KeyboardEvent): boolean {
+    return this.active.capturesKey?.(toToolKeyEvent(e)) ?? false;
   }
 
   /** Global key handling for tools. Returns true if consumed. */

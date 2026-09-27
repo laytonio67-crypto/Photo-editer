@@ -2,8 +2,14 @@
   "compilerOptions": {
     "tsBuildInfoFile": "../node_modules/.tmp/tsconfig.e2e.tsbuildinfo",
     "target": "es2023",
-    "lib": ["ES2023", "DOM", "DOM.Iterable"],
-    "types": ["node"],
+    "lib": [
+      "ES2023",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "types": [
+      "node"
+    ],
     "module": "esnext",
     "moduleResolution": "bundler",
     "skipLibCheck": true,
@@ -13,5 +19,13 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true
   },
-  "include": ["."]
+  "include": [
+    ".",
+    "../src/engine/adjustments/math.ts",
+    "../src/engine/adjustments/curves.ts",
+    "../src/engine/adjustments/types.ts",
+    "../src/engine/color/color.ts",
+    "../src/engine/doc/types.ts",
+    "../src/engine/geometry.ts"
+  ]
 }

@@ -1,0 +1,153 @@
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.headerIcon {
+  display: flex;
+  color: var(--text-1);
+}
+
+.headerTitle {
+  flex: 1;
+  margin: 0;
+  color: var(--text-0);
+  font-size: var(--fs-lg);
+  font-weight: 600;
+}
+
+.slider {
+  margin-bottom: 9px;
+}
+
+.slider:last-child {
+  margin-bottom: 0;
+}
+
+.sliderHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.sliderLabel {
+  color: var(--text-1);
+  font-size: var(--fs-sm);
+  cursor: default;
+  user-select: none;
+}
+
+.range {
+  --track: var(--border-control);
+}
+
+.range::-webkit-slider-runnable-track {
+  height: 4px;
+}
+
+.range::-moz-range-track {
+  height: 4px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.row > .grow {
+  flex: 1;
+}
+
+.graphBox {
+  position: relative;
+  width: 256px;
+  margin: 0 auto;
+  border: 1px solid var(--border-control);
+  background: var(--bg-input);
+}
+
+.handles {
+  position: relative;
+  width: 256px;
+  height: 12px;
+  margin: 0 auto 4px;
+  touch-action: none;
+}
+
+.handle {
+  position: absolute;
+  top: 0;
+  width: 12px;
+  height: 11px;
+  margin-left: -6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: ew-resize;
+}
+
+.handle::before {
+  content: '';
+  position: absolute;
+  left: 1px;
+  top: 1px;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-bottom: 9px solid var(--handle-fill, #888);
+  filter: drop-shadow(0 0 0.5px #000) drop-shadow(0 0 0.5px #000);
+}
+
+.handle:focus-visible {
+  outline: none;
+}
+
+.handle:focus-visible::before {
+  filter: drop-shadow(0 0 1.5px var(--border-focus)) drop-shadow(0 0 1px var(--border-focus));
+}
+
+.gradientBar {
+  width: 256px;
+  height: 10px;
+  margin: 0 auto;
+  border: 1px solid var(--border-control);
+}
+
+.fields {
+  display: flex;
+  justify-content: space-between;
+  width: 256px;
+  margin: 0 auto 10px;
+}
+
+.subTitle {
+  margin: 8px 0 4px;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+
+.curveSvg {
+  display: block;
+  position: absolute;
+  inset: 0;
+  width: 256px;
+  height: 256px;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.curveSvg:focus-visible {
+  outline: 1px solid var(--border-focus);
+}
+
+.hint {
+  margin: 6px 0 0;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+}

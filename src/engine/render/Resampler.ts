@@ -7,6 +7,7 @@ import {
   type Rect,
 } from '../geometry';
 import type { GPU } from '../gl/gpu';
+import type { RenderTarget } from '../gl/renderTarget';
 import type { Surface, SurfaceStore } from '../surfaces/SurfaceStore';
 import { affineToMat3 } from './Compositor';
 import { resampleProgram } from './shaders/layer';
@@ -46,6 +47,11 @@ export interface ResampleOptions {
   clip?: Rect;
   /** Part of the source that has content (defaults to the whole surface). */
   sourceRect?: Rect;
+  /**
+   * Repeat edge pixels instead of fading into transparency at the source's border
+   * (for images that fill the canvas, so resized edges stay opaque).
+   */
+  clampEdges?: boolean;
 }
 
 /**
@@ -91,7 +97,8 @@ export function resampleSurface(
     .mat3('u_inv', affineToMat3(inv))
     .vec2('u_outOrigin', bounds.x, bounds.y)
     .int('u_taps', taps)
-    .int('u_mode', effectiveMode === 'nearest' ? 0 : effectiveMode === 'bilinear' ? 1 : 2);
+    .int('u_mode', effectiveMode === 'nearest' ? 0 : effectiveMode === 'bilinear' ? 1 : 2)
+    .int('u_clampEdges', options.clampEdges ? 1 : 0);
   gpu.noBlend();
   const target = surfaces.target(surface.id);
   gpu.drawRect(program, target, { x: 0, y: 0, width: bounds.width, height: bounds.height });
@@ -108,5 +115,43 @@ export function cropSurface(surfaces: SurfaceStore, sourceId: string, rect: Rect
   const src = surfaces.get(sourceId);
   const out = surfaces.createBlank(rect.width, rect.height, src.format, src.format === 'r8' ? [fill, 0, 0, 1] : undefined);
   surfaces.copyRegion(sourceId, rect, out.id, 0, 0);
+  return out;
+}
+
+/**
+ * Resizes a whole texture (e.g. the document composite) to `width × height` into a
+ * pooled RGBA8 target. Edges repeat, so an opaque image stays opaque at its border.
+ * Release the result with gpu.pool.release.
+ */
+export function resampleTexture(
+  gpu: GPU,
+  texture: WebGLTexture,
+  srcWidth: number,
+  srcHeight: number,
+  width: number,
+  height: number,
+  mode: ResampleMode,
+): RenderTarget {
+  const out = gpu.pool.acquire(width, height, 'rgba8');
+  const sx = srcWidth / width;
+  const sy = srcHeight / height;
+  const inv = { a: sx, b: 0, c: 0, d: sy, e: 0, f: 0 };
+  const same = sx === 1 && sy === 1;
+  const footprint = Math.max(sx, sy);
+  const taps = same || mode === 'nearest' || footprint <= 1.05 ? 1 : Math.min(8, Math.ceil(footprint));
+  const program = gpu.program('resample', resampleProgram).use();
+  gpu.bindTexture(0, texture);
+  program
+    .int('u_src', 0)
+    .vec2('u_srcSize', srcWidth, srcHeight)
+    .vec4('u_outside', 0, 0, 0, 0)
+    .mat3('u_inv', affineToMat3(inv))
+    .vec2('u_outOrigin', 0, 0)
+    .int('u_taps', taps)
+    .int('u_mode', same || mode === 'nearest' ? 0 : mode === 'bilinear' ? 1 : 2)
+    .int('u_clampEdges', 1);
+  gpu.noBlend();
+  gpu.drawRect(program, out, { x: 0, y: 0, width, height });
+  gpu.bindTexture(0, null);
   return out;
 }

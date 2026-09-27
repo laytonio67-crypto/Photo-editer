@@ -145,7 +145,21 @@ export class TransformTool implements Tool {
     this.provider = {
       sourceFor: (layer: Layer) => {
         const s = this.session;
-        if (!s || !s.leafIds.has(layer.id) || layer.type !== 'pixel') return undefined;
+        if (!s || !s.leafIds.has(layer.id)) return undefined;
+        if (layer.type === 'text') {
+          // Preview the current raster through the transform; the text is re-rendered
+          // sharply from its vector description when the transform is applied.
+          const raster = editor.text.sourceFor(layer);
+          if (!raster) return null;
+          const m = this.matrix();
+          return {
+            ...raster,
+            transform: multiplyAffine(m, translation(raster.x, raster.y)),
+            maskTransform:
+              layer.mask && layer.mask.linked ? multiplyAffine(m, translation(layer.mask.x, layer.mask.y)) : undefined,
+          };
+        }
+        if (layer.type !== 'pixel') return undefined;
         const surface = editor.surfaces.tryGet(layer.surfaceId);
         if (!surface) return undefined;
         const m = this.matrix();

@@ -37,6 +37,8 @@ import {
 } from '../engine/actions/maskActions';
 import { fillSelection } from '../engine/paint/PixelOps';
 import { addAdjustmentLayer, canToggleClipping, toggleClippingMask } from '../engine/actions/adjustmentActions';
+import { canRasterize, rasterizeTextLayer } from '../engine/actions/textActions';
+import { saveProject } from '../ui/projects/projectActions';
 import { ADJUSTMENTS, ADJUSTMENT_ORDER } from '../engine/adjustments/registry';
 import type { AdjustmentKind } from '../engine/adjustments/types';
 import { importClipboardImages } from './clipboard';
@@ -91,6 +93,10 @@ function needsGroup(state: EditorState): true | string {
 /** Structure-changing commands are unavailable during Free Transform. */
 function notTransforming(state: EditorState): true | string {
   return state.interaction?.kind === 'transform' ? 'Finish the transform first (Enter or Esc)' : true;
+}
+
+function notEditingText(state: EditorState): true | string {
+  return state.textEditing ? 'Finish editing the text first' : true;
 }
 
 function all(...checks: ((s: EditorState) => true | string)[]): (s: EditorState) => true | string {
@@ -179,6 +185,34 @@ export const COMMANDS: Command[] = [
       const files = await pickFiles(IMPORT_ACCEPT, true);
       if (files.length) await editor.importFiles(files, 'place');
     },
+  },
+  {
+    id: 'file.openProject',
+    label: 'Open Project…',
+    shortcut: 'Alt+Mod+O',
+    enabled: (_s, editor) => (editor.projects.available ? true : 'This browser cannot store projects'),
+    run: (editor) => editor.openDialog({ kind: 'projects' }),
+  },
+  {
+    id: 'file.save',
+    label: 'Save',
+    shortcut: 'Mod+S',
+    enabled: all(needsDoc, notTransforming, notEditingText, (_s) => (typeof indexedDB === 'undefined' ? 'This browser cannot store projects' : true)),
+    run: (editor) => saveProject(editor),
+  },
+  {
+    id: 'file.saveAs',
+    label: 'Save As…',
+    shortcut: 'Shift+Mod+S',
+    enabled: all(needsDoc, notTransforming, notEditingText, (_s) => (typeof indexedDB === 'undefined' ? 'This browser cannot store projects' : true)),
+    run: (editor) => editor.openDialog({ kind: 'saveProject', saveAs: true }),
+  },
+  {
+    id: 'file.export',
+    label: 'Export As…',
+    shortcut: 'Alt+Shift+Mod+W',
+    enabled: all(needsDoc, notTransforming, notEditingText),
+    run: (editor) => editor.openDialog({ kind: 'export' }),
   },
   {
     id: 'file.close',
@@ -467,6 +501,12 @@ export const COMMANDS: Command[] = [
     run: (editor) => flattenImage(editor),
   },
   {
+    id: 'layer.rasterize',
+    label: 'Rasterize Layer',
+    enabled: all((s) => canRasterize(s.doc), notTransforming, (s) => (s.textEditing ? 'Finish editing the text first' : true)),
+    run: (editor) => rasterizeTextLayer(editor),
+  },
+  {
     id: 'layer.clip',
     label: (s) => (findLayer(s.doc?.layers ?? [], s.doc?.activeLayerId)?.clipped ? 'Release Clipping Mask' : 'Create Clipping Mask'),
     shortcut: 'Alt+Mod+G',
@@ -668,6 +708,9 @@ export const COMMANDS: Command[] = [
   toolCommand('eyedropper', 'Eyedropper Tool', 'I'),
   toolCommand('brush', 'Brush Tool', 'B'),
   toolCommand('eraser', 'Eraser Tool', 'E'),
+  toolCommand('cloneStamp', 'Clone Stamp Tool', 'S'),
+  toolCommand('healingBrush', 'Healing Brush Tool', 'J'),
+  toolCommand('text', 'Text Tool', 'T'),
   toolCommand('hand', 'Hand Tool', 'H'),
   toolCommand('zoom', 'Zoom Tool', 'Z'),
 

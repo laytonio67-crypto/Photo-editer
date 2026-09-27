@@ -6,6 +6,9 @@ import { formatShortcut } from '../../app/shortcuts';
 import { NewDocumentDialog } from './NewDocumentDialog';
 import { CanvasSizeDialog, ImageSizeDialog } from './SizeDialogs';
 import { FeatherDialog } from './FeatherDialog';
+import { ExportDialog } from './ExportDialog';
+import { SaveProjectDialog } from '../projects/SaveProjectDialog';
+import { ProjectsDialog } from '../projects/ProjectsDialog';
 import styles from './Dialogs.module.css';
 
 function ShortcutsDialog() {
@@ -22,6 +25,7 @@ function ShortcutsDialog() {
     edit: 'Edit',
     image: 'Image',
     layer: 'Layer',
+    adjust: 'Adjustments',
     select: 'Select',
     toolGroup: 'Tools',
     toolGroupCycle: 'Tools',
@@ -61,6 +65,24 @@ function ShortcutsDialog() {
             <tr>
               <td>Zoom at cursor</td>
               <td>{formatShortcut('Mod+')}wheel · Alt+wheel · pinch</td>
+            </tr>
+          </Group>
+          <Group title="Painting & text">
+            <tr>
+              <td>Brush size / hardness</td>
+              <td>[ ] · Shift+[ ]</td>
+            </tr>
+            <tr>
+              <td>Opacity (Shift: flow)</td>
+              <td>1 … 0</td>
+            </tr>
+            <tr>
+              <td>Set clone / healing source</td>
+              <td>Alt+click</td>
+            </tr>
+            <tr>
+              <td>Finish editing text</td>
+              <td>Esc · {formatShortcut('Mod+Enter')}</td>
             </tr>
           </Group>
         </tbody>
@@ -139,5 +161,11 @@ export function DialogHost() {
       return <CanvasSizeDialog />;
     case 'feather':
       return <FeatherDialog />;
+    case 'export':
+      return <ExportDialog />;
+    case 'saveProject':
+      return <SaveProjectDialog saveAs={dialog.saveAs} />;
+    case 'projects':
+      return <ProjectsDialog />;
   }
 }

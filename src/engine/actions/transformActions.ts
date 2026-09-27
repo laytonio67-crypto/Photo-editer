@@ -20,6 +20,8 @@ export interface TransformOptions {
   contentRects?: ReadonlyMap<LayerId, Rect>;
   /** Transform unlinked masks too (whole-canvas operations). */
   includeUnlinkedMasks?: boolean;
+  /** Whole-image resize: layers covering this rect keep opaque edges (see clampEdges). */
+  canvas?: Rect;
 }
 
 function isIntegerTranslation(m: Affine): boolean {
@@ -44,9 +46,13 @@ function transformLeaf(editor: Editor, layer: Layer, m: Affine, opts: TransformO
     case 'pixel': {
       const mask = transformMask(editor, layer.mask, m, opts);
       const local = multiplyAffine(m, translation(layer.x, layer.y));
+      const s = editor.surfaces.get(layer.surfaceId);
+      const c = opts.canvas;
+      const coversCanvas = c !== undefined && layer.x <= c.x && layer.y <= c.y && layer.x + s.width >= c.x + c.width && layer.y + s.height >= c.y + c.height;
       const r = resampleSurface(editor.gpu, editor.surfaces, layer.surfaceId, local, {
         mode: opts.mode,
         sourceRect: opts.contentRects?.get(layer.id),
+        clampEdges: coversCanvas,
       });
       if (!r) {
         // Transformed out of existence (e.g. zero scale): keep an empty layer.
@@ -116,7 +122,7 @@ function transformAll(editor: Editor, doc: DocState, m: Affine, mode: ResampleMo
     doc,
     doc.layers.map((l) => l.id),
     m,
-    { mode, includeUnlinkedMasks: true },
+    { mode, includeUnlinkedMasks: true, canvas: { x: 0, y: 0, width: doc.width, height: doc.height } },
   );
 }
 

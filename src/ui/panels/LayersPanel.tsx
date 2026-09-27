@@ -59,6 +59,7 @@ const LAYER_MENU: ContextMenuItem[] = [
   'layer.deleteMask',
   '-',
   'layer.clip',
+  'layer.rasterize',
   'layer.group',
   'layer.ungroup',
   '-',
@@ -295,8 +296,25 @@ const LayerRow = memo(function LayerRow({
       <span
         className={styles.thumbBox}
         data-target={active && editTarget === 'content' && Boolean(layer.mask)}
-        title={layer.type === 'pixel' ? `${layer.name} — ${formatShortcut('Mod+')}click to load transparency as selection` : undefined}
+        title={
+          layer.type === 'pixel'
+            ? `${layer.name} — ${formatShortcut('Mod+')}click to load transparency as selection`
+            : layer.type === 'text'
+              ? 'Double-click to edit the text'
+              : layer.type === 'adjustment'
+                ? 'Double-click to show the adjustment settings'
+                : undefined
+        }
         onClick={onContentThumbClick}
+        onDoubleClick={(e) => {
+          e.stopPropagation();
+          if (layer.type === 'text') {
+            editor.setTool('text');
+            editor.textTool.edit(layer.id);
+          } else if (layer.type === 'adjustment') {
+            editor.events.emit('revealPanel', 'properties');
+          }
+        }}
       >
         {thumb}
       </span>

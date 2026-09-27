@@ -1,4 +1,4 @@
-import type { DocState, GroupLayer, Layer, LayerMask } from '../doc/types';
+import type { DocState, GroupLayer, Layer, LayerMask, TextLayer } from '../doc/types';
 import {
   expandRect,
   intersectRects,
@@ -96,6 +96,8 @@ export class Compositor {
   private height = 0;
   /** Preview hooks consulted in order (first non-undefined answer wins). */
   readonly providers: LayerSourceProvider[] = [];
+  /** Raster source for text layers (the text engine), when available. */
+  textSource: ((layer: TextLayer) => DrawSource | null) | null = null;
   private readonly adjustments: AdjustmentRenderer;
 
   constructor(
@@ -240,7 +242,9 @@ export class Compositor {
         this.compositeGroup(layer, acc, atop);
         break;
       case 'text': {
-        const source = this.overrideFor(layer);
+        const override = this.overrideFor(layer);
+        if (override === null) break;
+        const source = override ?? this.textSource?.(layer) ?? null;
         if (source) this.drawSource(acc, source, layer.opacity, layer.blendMode, layer.mask, this.maskOverrideFor(layer), atop);
         break;
       }
@@ -266,7 +270,8 @@ export class Compositor {
       case 'pixel':
       case 'text': {
         const override = this.overrideFor(base);
-        const source = override === null ? null : (override ?? (base.type === 'pixel' ? this.pixelSource(base) : null));
+        const source =
+          override === null ? null : (override ?? (base.type === 'pixel' ? this.pixelSource(base) : (this.textSource?.(base) ?? null)));
         if (source) this.drawSource(temp, source, 1, 'normal', base.mask, this.maskOverrideFor(base), false);
         break;
       }

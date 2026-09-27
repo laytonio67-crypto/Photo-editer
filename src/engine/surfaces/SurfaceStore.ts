@@ -71,9 +71,9 @@ export class SurfaceStore {
     }
   }
 
-  private register(width: number, height: number, format: SurfaceFormat, target: RenderTarget): Surface {
+  private register(width: number, height: number, format: SurfaceFormat, target: RenderTarget, id?: SurfaceId): Surface {
     const surface: Surface = {
-      id: createId('srf'),
+      id: id && !this.surfaces.has(id) ? id : createId('srf'),
       width,
       height,
       format,
@@ -99,8 +99,11 @@ export class SurfaceStore {
     return this.register(width, height, format, target);
   }
 
-  /** New surface from raw pixel data (premultiplied RGBA8 or R8, top-down rows). */
-  createFromPixels(width: number, height: number, format: SurfaceFormat, data: Uint8Array): Surface {
+  /**
+   * New surface from raw pixel data (premultiplied RGBA8 or R8, top-down rows).
+   * `preferredId` keeps a stored id (projects) unless that id is already in use.
+   */
+  createFromPixels(width: number, height: number, format: SurfaceFormat, data: Uint8Array, preferredId?: SurfaceId): Surface {
     this.checkSize(width, height);
     const expected = width * height * (format === 'rgba8' ? 4 : 1);
     if (data.length !== expected) {
@@ -108,7 +111,7 @@ export class SurfaceStore {
     }
     const target = new RenderTarget(this.gl, width, height, format);
     this.upload(target, { x: 0, y: 0, width, height }, data);
-    return this.register(width, height, format, target);
+    return this.register(width, height, format, target, preferredId);
   }
 
   /**

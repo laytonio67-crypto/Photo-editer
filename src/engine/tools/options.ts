@@ -1,3 +1,4 @@
+import type { TextStyle } from '../doc/types';
 import type { ResampleMode } from '../render/Resampler';
 import type { SelectionMode } from '../selection/SelectionOps';
 
@@ -35,6 +36,16 @@ export interface BrushOptions {
   pressureOpacity: boolean;
 }
 
+export interface CloneOptions extends BrushOptions {
+  /**
+   * Aligned: the source moves with the brush and keeps its offset between strokes.
+   * Otherwise every stroke starts sampling at the source point again.
+   */
+  aligned: boolean;
+  /** Sample the active layer or the visible composite. */
+  sample: 'current' | 'all';
+}
+
 export interface SelectionToolOptions {
   mode: SelectionMode;
   /** Feather radius in px applied to new shapes. */
@@ -55,12 +66,18 @@ export interface EyedropperOptions {
   sample: 'all' | 'current';
 }
 
+/** Style for new text layers (their colour is the foreground colour). */
+export type TextToolOptions = Omit<TextStyle, 'color'>;
+
 export interface ToolOptions {
   move: MoveToolOptions;
+  text: TextToolOptions;
   crop: CropToolOptions;
   transform: TransformToolOptions;
   brush: BrushOptions;
   eraser: BrushOptions;
+  cloneStamp: CloneOptions;
+  healingBrush: CloneOptions;
   selection: SelectionToolOptions;
   magicWand: MagicWandOptions;
   eyedropper: EyedropperOptions;
@@ -68,6 +85,7 @@ export interface ToolOptions {
 
 export const DEFAULT_TOOL_OPTIONS: ToolOptions = {
   move: { autoSelect: false },
+  text: { fontFamily: 'Arial', fontSize: 48, fontWeight: 400, italic: false, align: 'left', lineHeight: 1.2, letterSpacing: 0 },
   crop: { ratio: 'free', deletePixels: false, overlay: 'thirds' },
   transform: { interpolation: 'bicubic' },
   brush: {
@@ -89,6 +107,30 @@ export const DEFAULT_TOOL_OPTIONS: ToolOptions = {
     smoothing: 0.1,
     pressureSize: true,
     pressureOpacity: false,
+  },
+  cloneStamp: {
+    size: 40,
+    hardness: 0.5,
+    opacity: 1,
+    flow: 1,
+    spacing: 0.1,
+    smoothing: 0.1,
+    pressureSize: true,
+    pressureOpacity: false,
+    aligned: true,
+    sample: 'current',
+  },
+  healingBrush: {
+    size: 40,
+    hardness: 0.8,
+    opacity: 1,
+    flow: 1,
+    spacing: 0.1,
+    smoothing: 0.1,
+    pressureSize: true,
+    pressureOpacity: false,
+    aligned: true,
+    sample: 'current',
   },
   selection: { mode: 'replace', feather: 0 },
   magicWand: { tolerance: 32, contiguous: true, sampleAll: true },

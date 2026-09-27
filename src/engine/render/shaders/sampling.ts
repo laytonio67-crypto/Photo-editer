@@ -12,8 +12,10 @@ uniform vec2 u_srcSize;      // texels
 uniform vec4 u_outside;      // value of texels outside the source
 uniform mat3 u_inv;          // document px → source px (column-major)
 uniform vec2 u_srcOrigin;    // exact path: document position of texel (0,0)
+uniform int u_clampEdges;    // 1: outside texels repeat the edge (whole-image resizes)
 
 vec4 srcTexel(ivec2 p) {
+  if (u_clampEdges == 1) return texelFetch(u_src, clamp(p, ivec2(0), ivec2(u_srcSize) - 1), 0);
   if (p.x < 0 || p.y < 0 || p.x >= int(u_srcSize.x) || p.y >= int(u_srcSize.y)) return u_outside;
   return texelFetch(u_src, p, 0);
 }

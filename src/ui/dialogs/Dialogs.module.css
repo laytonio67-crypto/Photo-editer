@@ -75,3 +75,17 @@
   font-family: var(--font-mono);
   font-size: var(--fs-sm);
 }
+
+.value {
+  color: var(--text-0);
+  font-size: var(--fs-md);
+  font-variant-numeric: tabular-nums;
+}
+
+.swatch {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-sm);
+}

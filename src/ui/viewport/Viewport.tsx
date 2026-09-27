@@ -1,9 +1,11 @@
 import { useLayoutEffect, useRef } from 'react';
-import { FilePlus, ImagePlus } from 'lucide-react';
+import { FilePlus, FolderOpen, ImagePlus } from 'lucide-react';
 import { useEditor, useEditorState } from '../editorContext';
 import { getCommand, runCommand } from '../../app/commands';
 import { formatShortcut } from '../../app/shortcuts';
 import { Ruler } from './Ruler';
+import { TextEditOverlay } from './TextEditOverlay';
+import { RecentProjects } from '../projects/RecentProjects';
 import styles from './Viewport.module.css';
 
 function StartScreen() {
@@ -26,11 +28,13 @@ function StartScreen() {
         <div className={styles.startActions}>
           {action('file.open', <ImagePlus size={17} strokeWidth={1.6} />, 'Open image…')}
           {action('file.new', <FilePlus size={17} strokeWidth={1.6} />, 'New document…')}
+          {action('file.openProject', <FolderOpen size={17} strokeWidth={1.6} />, 'Open project…')}
         </div>
         <p className={styles.startHint}>
           PNG, JPEG, WebP, AVIF, GIF and BMP are supported. You can also drop images anywhere in this window
           or paste one from the clipboard.
         </p>
+        <RecentProjects />
       </div>
     </div>
   );
@@ -86,6 +90,7 @@ export function Viewport() {
         </>
       )}
       <div ref={stageRef} className={styles.stage} tabIndex={-1} aria-label="Document canvas" data-testid="stage" />
+      <TextEditOverlay />
       {!hasDoc && <StartScreen />}
     </div>
   );

@@ -5,7 +5,8 @@ import { toolDef } from '../toolbar/toolDefs';
 import type { ToolId } from '../../engine/tools/types';
 import { CropOptions, MoveOptions, TransformOptions, ViewButtons } from './panels';
 import { MagicWandOptions, SelectionOptions } from './selectionPanels';
-import { BrushOptionsPanel, EyedropperOptionsPanel } from './paintPanels';
+import { BrushOptionsPanel, CloneOptionsPanel, EyedropperOptionsPanel } from './paintPanels';
+import { TextOptions } from './textPanel';
 import styles from './OptionsBar.module.css';
 
 const OPTION_PANELS: Partial<Record<ToolId, () => ReactNode>> = {
@@ -21,6 +22,9 @@ const OPTION_PANELS: Partial<Record<ToolId, () => ReactNode>> = {
   eyedropper: () => <EyedropperOptionsPanel />,
   brush: () => <BrushOptionsPanel tool="brush" />,
   eraser: () => <BrushOptionsPanel tool="eraser" />,
+  cloneStamp: () => <CloneOptionsPanel tool="cloneStamp" />,
+  healingBrush: () => <CloneOptionsPanel tool="healingBrush" />,
+  text: () => <TextOptions />,
   hand: () => (
     <>
       <ViewButtons />

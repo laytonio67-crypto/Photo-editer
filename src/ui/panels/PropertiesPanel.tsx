@@ -16,6 +16,8 @@ import { setEditTarget, toggleMaskLink } from '../../engine/actions/maskActions'
 import { useScrub } from '../useScrub';
 import { BlendModeSelect } from './BlendModeSelect';
 import { AdjustmentSection } from './adjustments/AdjustmentSection';
+import { TextStyleControls } from '../text/TextStyleControls';
+import { applyTextStyle } from '../../engine/actions/textActions';
 import panel from './Panel.module.css';
 
 const TYPE_LABELS = { pixel: 'Pixel Layer', text: 'Text Layer', adjustment: 'Adjustment Layer', group: 'Group' } as const;
@@ -182,6 +184,32 @@ function MaskSection({ layer }: { layer: Layer }) {
   );
 }
 
+function TextSection({ layer }: { layer: Extract<Layer, { type: 'text' }> }) {
+  const editor = useEditor();
+  const editing = useEditorState((s) => s.textEditing?.layerId === layer.id);
+  return (
+    <section className={panel.section}>
+      <h2 className={panel.sectionTitle}>Text</h2>
+      <TextStyleControls layout="panel" value={layer.style} onChange={(patch, mergeKey) => applyTextStyle(editor, patch, mergeKey)} />
+      <div className={panel.controlRow} style={{ marginTop: 10 }}>
+        <Button
+          className={optionStyles.small}
+          disabled={editing}
+          onClick={() => {
+            editor.setTool('text');
+            editor.textTool.edit(layer.id);
+          }}
+        >
+          Edit Text
+        </Button>
+        <Button className={optionStyles.small} disabled={editing} onClick={() => runCommand(editor, 'layer.rasterize')}>
+          Rasterize
+        </Button>
+      </div>
+    </section>
+  );
+}
+
 function LayerSection({ layer }: { layer: Layer }) {
   const editor = useEditor();
   const scrub = useScrub();
@@ -231,6 +259,7 @@ export function PropertiesPanel() {
   return (
     <>
       {layer?.type === 'adjustment' && <AdjustmentSection layer={layer} />}
+      {layer?.type === 'text' && <TextSection layer={layer} />}
       {layer && <LayerSection layer={layer} />}
       {layer && <MaskSection layer={layer} />}
       {layer && layer.type !== 'adjustment' && <TransformSection layer={layer} />}

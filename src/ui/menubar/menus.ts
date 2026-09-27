@@ -5,7 +5,10 @@ export interface MenuDef {
 }
 
 export const MENUS: MenuDef[] = [
-  { label: 'File', items: ['file.new', 'file.open', 'file.place', '-', 'file.close'] },
+  {
+    label: 'File',
+    items: ['file.new', 'file.open', 'file.openProject', 'file.place', '-', 'file.save', 'file.saveAs', 'file.export', '-', 'file.close'],
+  },
   {
     label: 'Edit',
     items: [
@@ -69,6 +72,7 @@ export const MENUS: MenuDef[] = [
       'layer.sendToBack',
       '-',
       'layer.clip',
+      'layer.rasterize',
       '-',
       'layer.mergeDown',
       'layer.mergeVisible',

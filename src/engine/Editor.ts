@@ -1,3 +1,8 @@
+import { CloneTool } from './tools/CloneTool';
+import { TextRenderer } from './text/TextRenderer';
+import { TextTool } from './tools/TextTool';
+import { Exporter } from './io/exportImage';
+import { ProjectStore } from './io/ProjectStore';
 import { HistogramService } from './histogram/HistogramService';
 import { Emitter, Store } from './store';
 import { createGL, type GLCaps } from './gl/context';
@@ -43,7 +48,10 @@ export type DialogState =
   | { kind: 'shortcuts' }
   | { kind: 'imageSize' }
   | { kind: 'canvasSize' }
-  | { kind: 'feather' };
+  | { kind: 'feather' }
+  | { kind: 'export' }
+  | { kind: 'saveProject'; saveAs: boolean }
+  | { kind: 'projects' };
 
 export interface Notice {
   id: number;
@@ -74,6 +82,10 @@ export interface EditorState {
   interaction: Interaction;
   /** How the active layer's mask is visualised in the viewport. */
   maskView: 'off' | 'grayscale' | 'overlay';
+  /** Text layer being edited with the Text tool. */
+  textEditing: { layerId: string; isNew: boolean } | null;
+  /** Saved project the open document belongs to (null until it is saved). */
+  project: { id: string; name: string } | null;
 }
 
 export interface EditorEvents extends Record<string, unknown> {
@@ -159,12 +171,16 @@ export class Editor {
   readonly surfaces: SurfaceStore;
   readonly compositor: Compositor;
   readonly histograms: HistogramService;
+  readonly text: TextRenderer;
+  readonly exporter: Exporter;
+  readonly projects: ProjectStore;
   readonly viewRenderer: ViewRenderer;
   readonly thumbnails: ThumbnailRenderer;
   readonly view = new ViewController();
   readonly tools: ToolManager;
   readonly history: History;
   readonly transformTool: TransformTool;
+  readonly textTool: TextTool;
 
   private frameHandle = 0;
   private overlayDirty = true;
@@ -191,6 +207,21 @@ export class Editor {
     this.surfaces = new SurfaceStore(gl, caps.maxDocumentSize);
     this.compositor = new Compositor(this.gpu, this.surfaces);
     this.histograms = new HistogramService(this.gpu, this.compositor);
+    this.text = new TextRenderer(
+      this.gpu,
+      () => {
+        const doc = this.doc;
+        return { x: 0, y: 0, width: doc?.width ?? 0, height: doc?.height ?? 0 };
+      },
+      () => {
+        this.compositor.invalidate();
+        this.requestRender();
+      },
+    );
+    this.compositor.textSource = (layer) => this.text.sourceFor(layer);
+    this.exporter = new Exporter(this);
+    this.projects = new ProjectStore(this);
+    this.textBounds = (layer) => this.text.bounds(layer);
     this.viewRenderer = new ViewRenderer(this.gpu);
     this.thumbnails = new ThumbnailRenderer(this.gpu);
 
@@ -218,6 +249,8 @@ export class Editor {
       toolOptions: DEFAULT_TOOL_OPTIONS,
       interaction: null,
       maskView: 'off',
+      textEditing: null,
+      project: null,
     });
     this.history.onChange = () => {
       this.store.set({ history: this.history.snapshot() });
@@ -235,9 +268,13 @@ export class Editor {
     this.tools.register(new EyedropperTool(this));
     this.tools.register(new BrushTool(this, 'brush'));
     this.tools.register(new BrushTool(this, 'eraser'));
+    this.tools.register(new CloneTool(this, 'cloneStamp'));
+    this.tools.register(new CloneTool(this, 'healingBrush'));
     this.tools.register(new HandTool(this));
     this.tools.register(new ZoomTool(this));
     this.transformTool = new TransformTool(this);
+    this.textTool = new TextTool(this);
+    this.tools.register(this.textTool);
 
     this.store.subscribe(() => this.onStateChange());
     this.view.events.on('change', (t) => {
@@ -392,6 +429,7 @@ export class Editor {
       const s = this.surfaces.tryGet(layer.surfaceId);
       return s ? { x: layer.x, y: layer.y, width: s.width, height: s.height } : { x: 0, y: 0, width: 0, height: 0 };
     }
+    if (layer.type === 'text') return this.text.bounds(layer) ?? { x: 0, y: 0, width: 0, height: 0 };
     return 'full';
   };
 
@@ -478,7 +516,15 @@ export class Editor {
     return this.transaction !== null;
   }
 
+  private edits = 0;
+
+  /** Increases with every recorded edit (lets async saves tell if the document changed). */
+  get editVersion(): number {
+    return this.edits;
+  }
+
   markModified(): void {
+    this.edits++;
     if (!this.store.get().modified) this.store.set({ modified: true });
   }
 
@@ -532,6 +578,9 @@ export class Editor {
     if (this.lastSelection) live.add(this.lastSelection.surfaceId);
     this.history.referencedSurfaces(live);
     this.surfaces.collectGarbage(live);
+    const layerIds = new Set<string>();
+    if (doc) walkLayers(doc.layers, (l) => void layerIds.add(l.id));
+    this.text.prune(layerIds);
     void this.evictHistorySurfaces();
   }
 
@@ -567,12 +616,14 @@ export class Editor {
 
   /** Installs a brand-new document, resetting history and fitting the view. */
   private installDocument(doc: DocState, baseLabel: string): void {
+    this.textTool.cancel();
     this.tools.cancelGesture();
     this.cancelMode();
     this.transaction?.cancel();
     this.replaceDoc(doc);
     this.history.reset(baseLabel);
-    this.store.set({ modified: false });
+    this.store.set({ modified: false, project: null });
+    this.projects.detach();
     this.view.setDocumentSize(doc.width, doc.height);
     this.view.fitNoUpscale();
     this.collectGarbage();
@@ -618,6 +669,12 @@ export class Editor {
       layers: [layer],
     });
     this.installDocument(doc, 'New Document');
+  }
+
+  /** Installs a document restored from a saved project (see ProjectStore.open). */
+  openProjectDocument(doc: DocState, project: { id: string; name: string }): void {
+    this.installDocument(doc, 'Open Project');
+    this.store.set({ project });
   }
 
   /** Opens a decoded image as a new document with a single layer. */
@@ -689,12 +746,14 @@ export class Editor {
 
   async closeDocument(): Promise<void> {
     if (!(await this.confirmDiscard('close the document'))) return;
+    this.textTool.cancel();
     this.tools.cancelGesture();
     this.cancelMode();
     this.transaction?.cancel();
     this.replaceDoc(null);
     this.history.reset('Open');
-    this.store.set({ modified: false });
+    this.store.set({ modified: false, project: null });
+    this.projects.detach();
     this.collectGarbage();
   }
 

@@ -1,5 +1,5 @@
 import type { Editor } from '../Editor';
-import { findLayer, isEffectivelyVisible, updateLayer } from '../doc/layerTree';
+import { effectiveEditTarget, findLayer, isEffectivelyVisible, updateLayer } from '../doc/layerTree';
 import type { DocState, Layer, LayerId, SurfaceId } from '../doc/types';
 import { containsRect, isEmptyRect, unionRects, type Rect } from '../geometry';
 
@@ -23,7 +23,7 @@ export interface PaintTarget {
 /** Why the active layer can't be painted on, or null if it can. */
 export function paintTargetProblem(doc: DocState, layer: Layer | null): string | null {
   if (!layer) return 'Select a layer to paint on.';
-  const part = doc.editTarget === 'mask' && layer.mask ? 'mask' : 'content';
+  const part = effectiveEditTarget(doc, layer);
   if (part === 'content') {
     if (layer.type === 'group') return 'Groups have no pixels of their own — select a layer inside the group.';
     if (layer.type === 'adjustment') return 'Adjustment layers have no pixels — add or select the layer mask to paint.';
@@ -40,7 +40,7 @@ export function resolvePaintTarget(editor: Editor): PaintTarget | string {
   const layer = findLayer(doc.layers, doc.activeLayerId);
   const problem = paintTargetProblem(doc, layer);
   if (problem || !layer) return problem ?? 'Select a layer to paint on.';
-  if (doc.editTarget === 'mask' && layer.mask) {
+  if (effectiveEditTarget(doc, layer) === 'mask' && layer.mask) {
     const s = editor.surfaces.get(layer.mask.surfaceId);
     return {
       layerId: layer.id,

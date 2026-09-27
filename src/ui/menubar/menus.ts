@@ -68,6 +68,8 @@ export const MENUS: MenuDef[] = [
       'layer.sendBackward',
       'layer.sendToBack',
       '-',
+      'layer.clip',
+      '-',
       'layer.mergeDown',
       'layer.mergeVisible',
       'layer.flatten',
@@ -77,6 +79,22 @@ export const MENUS: MenuDef[] = [
     label: 'Select',
     items: ['select.all', 'select.deselect', 'select.reselect', 'select.inverse', '-', 'select.feather', 'select.loadTransparency'],
   },
+  {
+    label: 'Adjust',
+    items: [
+      'adjust.brightnessContrast',
+      'adjust.levels',
+      'adjust.curves',
+      'adjust.exposure',
+      'adjust.shadowsHighlights',
+      '-',
+      'adjust.vibrance',
+      'adjust.hueSaturation',
+      'adjust.whiteBalance',
+      'adjust.blackWhite',
+    ],
+  },
+  { label: 'Filter', items: ['adjust.gaussianBlur', 'adjust.sharpen'] },
   {
     label: 'View',
     items: [

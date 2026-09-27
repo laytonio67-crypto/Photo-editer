@@ -1,3 +1,4 @@
+import { HistogramService } from './histogram/HistogramService';
 import { Emitter, Store } from './store';
 import { createGL, type GLCaps } from './gl/context';
 import { GPU } from './gl/gpu';
@@ -79,6 +80,8 @@ export interface EditorEvents extends Record<string, unknown> {
   cursor: Point | null;
   surfaceChanged: SurfaceId;
   frame: undefined;
+  /** Asks the UI to bring an inspector panel to the front. */
+  revealPanel: 'properties' | 'history';
 }
 
 export type BackgroundFill = 'white' | 'black' | 'transparent' | { color: RGB };
@@ -155,6 +158,7 @@ export class Editor {
   readonly gpu: GPU;
   readonly surfaces: SurfaceStore;
   readonly compositor: Compositor;
+  readonly histograms: HistogramService;
   readonly viewRenderer: ViewRenderer;
   readonly thumbnails: ThumbnailRenderer;
   readonly view = new ViewController();
@@ -186,6 +190,7 @@ export class Editor {
     this.gpu = new GPU(gl, caps);
     this.surfaces = new SurfaceStore(gl, caps.maxDocumentSize);
     this.compositor = new Compositor(this.gpu, this.surfaces);
+    this.histograms = new HistogramService(this.gpu, this.compositor);
     this.viewRenderer = new ViewRenderer(this.gpu);
     this.thumbnails = new ThumbnailRenderer(this.gpu);
 

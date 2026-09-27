@@ -20,6 +20,16 @@ export function isGroup(layer: Layer): layer is GroupLayer {
   return layer.type === 'group';
 }
 
+/**
+ * What edits on `layer` affect. Layers without pixels of their own (adjustments,
+ * groups) always target their mask when they have one.
+ */
+export function effectiveEditTarget(doc: DocState, layer: Layer | null): 'content' | 'mask' {
+  if (!layer?.mask) return 'content';
+  if (layer.type === 'adjustment' || layer.type === 'group') return 'mask';
+  return doc.editTarget;
+}
+
 /** Depth-first visit, bottom → top, parents before children. Return false to stop. */
 export function walkLayers(
   layers: readonly Layer[],
@@ -263,7 +273,7 @@ export function uniqueLayerName(layers: readonly Layer[], base: string): string 
 /** Next "Layer N" name, continuing the highest existing number. */
 export function nextLayerName(layers: readonly Layer[], prefix = 'Layer'): string {
   let max = 0;
-  const re = new RegExp(`^${prefix} (\\d+)$`);
+  const re = new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} (\\d+)$`);
   walkLayers(layers, (l) => {
     const m = re.exec(l.name);
     if (m) max = Math.max(max, Number(m[1]));

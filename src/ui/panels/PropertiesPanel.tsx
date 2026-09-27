@@ -15,6 +15,7 @@ import optionStyles from '../optionsbar/OptionsBar.module.css';
 import { setEditTarget, toggleMaskLink } from '../../engine/actions/maskActions';
 import { useScrub } from '../useScrub';
 import { BlendModeSelect } from './BlendModeSelect';
+import { AdjustmentSection } from './adjustments/AdjustmentSection';
 import panel from './Panel.module.css';
 
 const TYPE_LABELS = { pixel: 'Pixel Layer', text: 'Text Layer', adjustment: 'Adjustment Layer', group: 'Group' } as const;
@@ -133,6 +134,7 @@ function MaskSection({ layer }: { layer: Layer }) {
   return (
     <section className={panel.section}>
       <h2 className={panel.sectionTitle}>Mask</h2>
+      {layer.type !== 'adjustment' && layer.type !== 'group' && (
       <div className={panel.controlRow}>
         <span className={panel.controlLabel}>Edit</span>
         <div className={optionStyles.segmented} role="radiogroup" aria-label="Edit target">
@@ -144,6 +146,7 @@ function MaskSection({ layer }: { layer: Layer }) {
           </button>
         </div>
       </div>
+      )}
       <div className={panel.controlRow}>
         <span className={panel.controlLabel}>View</span>
         <div className={optionStyles.segmented} role="radiogroup" aria-label="Mask view">
@@ -227,6 +230,7 @@ export function PropertiesPanel() {
   const layer = findLayer(doc.layers, doc.activeLayerId);
   return (
     <>
+      {layer?.type === 'adjustment' && <AdjustmentSection layer={layer} />}
       {layer && <LayerSection layer={layer} />}
       {layer && <MaskSection layer={layer} />}
       {layer && layer.type !== 'adjustment' && <TransformSection layer={layer} />}

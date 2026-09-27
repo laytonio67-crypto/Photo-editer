@@ -45,8 +45,11 @@ void main() {
  * Draws a source blended onto a backdrop with an arbitrary blend mode. Renders into a
  * scratch target while reading the accumulator as backdrop (ping-pong), because a
  * shader cannot read the framebuffer it writes.
+ *
+ * With `atop` (clipping masks) the source only lands where the backdrop has coverage
+ * and the backdrop's alpha is kept: Porter–Duff source-atop with blending.
  */
-export function layerBlendProgram(mode: BlendMode, transformed: boolean): { vertex: string; fragment: string } {
+export function layerBlendProgram(mode: BlendMode, transformed: boolean, atop = false): { vertex: string; fragment: string } {
   return {
     vertex: REGION_VERTEX,
     fragment: `${FRAGMENT_HEADER}
@@ -66,9 +69,14 @@ void main() {
   vec3 Cs = unpremultiply(s);
   vec3 Cb = unpremultiply(b);
   vec3 B = clamp(${blendExpression(mode)}, 0.0, 1.0);
-  vec3 co = s.rgb * (1.0 - b.a) + b.rgb * (1.0 - s.a) + s.a * b.a * B;
+  ${
+    atop
+      ? `vec3 co = s.rgb * b.a * (1.0 - b.a) + b.rgb * (1.0 - s.a) + s.a * b.a * b.a * B;
+  o = vec4(co, b.a);`
+      : `vec3 co = s.rgb * (1.0 - b.a) + b.rgb * (1.0 - s.a) + s.a * b.a * B;
   float ao = s.a + b.a * (1.0 - s.a);
-  o = vec4(co, ao);
+  o = vec4(co, ao);`
+  }
 }
 `,
   };

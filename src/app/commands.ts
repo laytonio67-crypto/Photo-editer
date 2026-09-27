@@ -36,6 +36,9 @@ import {
   toggleLayerMask,
 } from '../engine/actions/maskActions';
 import { fillSelection } from '../engine/paint/PixelOps';
+import { addAdjustmentLayer, canToggleClipping, toggleClippingMask } from '../engine/actions/adjustmentActions';
+import { ADJUSTMENTS, ADJUSTMENT_ORDER } from '../engine/adjustments/registry';
+import type { AdjustmentKind } from '../engine/adjustments/types';
 import { importClipboardImages } from './clipboard';
 import { findLayer } from '../engine/doc/layerTree';
 import { pickFiles } from './filePicker';
@@ -61,6 +64,14 @@ export interface Command {
 }
 
 const NEEDS_DOC = 'Open or create a document first';
+
+/** Photoshop-compatible shortcuts for the most used adjustments. */
+const ADJUSTMENT_SHORTCUTS: Partial<Record<AdjustmentKind, string>> = {
+  levels: 'Mod+L',
+  curves: 'Mod+M',
+  hueSaturation: 'Mod+U',
+  blackWhite: 'Alt+Shift+Mod+B',
+};
 
 function needsDoc(state: EditorState): true | string {
   return state.doc ? true : NEEDS_DOC;
@@ -455,6 +466,26 @@ export const COMMANDS: Command[] = [
     enabled: all(needsDoc, notTransforming),
     run: (editor) => flattenImage(editor),
   },
+  {
+    id: 'layer.clip',
+    label: (s) => (findLayer(s.doc?.layers ?? [], s.doc?.activeLayerId)?.clipped ? 'Release Clipping Mask' : 'Create Clipping Mask'),
+    shortcut: 'Alt+Mod+G',
+    enabled: all((s) => canToggleClipping(s.doc), notTransforming),
+    run: (editor) => toggleClippingMask(editor),
+  },
+
+  // Adjustment layers (non-destructive; each creates a layer above the active one)
+  ...ADJUSTMENT_ORDER.map(
+    (kind): Command => ({
+      id: `adjust.${kind}`,
+      label: ADJUSTMENTS[kind].label,
+      shortcut: ADJUSTMENT_SHORTCUTS[kind],
+      enabled: all(needsDoc, notTransforming),
+      run: (editor) => {
+        if (addAdjustmentLayer(editor, kind)) editor.events.emit('revealPanel', 'properties');
+      },
+    }),
+  ),
   {
     id: 'layer.addMask',
     label: 'Add Layer Mask (Reveal)',

@@ -4,6 +4,7 @@ import {
   ChevronRight,
   CircleDot,
   Copy,
+  CornerLeftDown,
   Link2,
   Eye,
   EyeOff,
@@ -42,8 +43,49 @@ import { useScrub } from '../useScrub';
 import { dropDestination, type DropTarget, type DropZone } from './layerDrop';
 import { BlendModeSelect } from './BlendModeSelect';
 import { LayerThumbnail } from './LayerThumbnail';
+import { ADJUSTMENT_ICONS } from './adjustmentIcons';
+import { ADJUSTMENT_ORDER } from '../../engine/adjustments/registry';
 import panel from './Panel.module.css';
 import styles from './LayersPanel.module.css';
+
+const LAYER_MENU: ContextMenuItem[] = [
+  'layer.duplicate',
+  'layer.delete',
+  '-',
+  'select.loadTransparency',
+  'layer.addMask',
+  'layer.toggleMask',
+  'layer.applyMask',
+  'layer.deleteMask',
+  '-',
+  'layer.clip',
+  'layer.group',
+  'layer.ungroup',
+  '-',
+  'edit.freeTransform',
+  'edit.flipH',
+  'edit.flipV',
+  '-',
+  'layer.mergeDown',
+  'layer.mergeVisible',
+  'layer.flatten',
+];
+
+const ADJUSTMENT_MENU: ContextMenuItem[] = ADJUSTMENT_ORDER.map((kind) => `adjust.${kind}`);
+
+/** Ids of layers that have clipped layers directly above them. */
+function clipBases(layers: readonly Layer[], into = new Set<LayerId>()): Set<LayerId> {
+  let base: Layer | null = null;
+  for (const layer of layers) {
+    if (layer.clipped) {
+      if (base && base.type !== 'adjustment') into.add(base.id);
+    } else {
+      base = layer;
+    }
+    if (layer.type === 'group') clipBases(layer.children, into);
+  }
+  return into;
+}
 
 function LayersHeader({ doc }: { doc: DocState }) {
   const editor = useEditor();
@@ -126,6 +168,8 @@ interface RowProps {
   selected: boolean;
   active: boolean;
   editTarget: 'content' | 'mask';
+  /** The layer is the base of a clipping group (layers above clip to it). */
+  clipBase: boolean;
   docWidth: number;
   docHeight: number;
   drop: DropZone | null;
@@ -138,13 +182,16 @@ const LayerRow = memo(function LayerRow({
   depth,
   selected,
   active,
-  editTarget,
+  editTarget: docEditTarget,
+  clipBase,
   docWidth,
   docHeight,
   drop,
   onRowPointerDown,
   onContextMenu,
 }: RowProps) {
+  // Layers without pixels of their own always edit their mask.
+  const editTarget = layer.mask && (layer.type === 'adjustment' || layer.type === 'group') ? 'mask' : docEditTarget;
   const editor = useEditor();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(layer.name);
@@ -164,9 +211,9 @@ const LayerRow = memo(function LayerRow({
   if (layer.type === 'pixel') {
     thumb = <LayerThumbnail layer={layer} docWidth={docWidth} docHeight={docHeight} size={32} className={styles.thumb} />;
   } else {
-    const Icon = layer.type === 'group' ? Folder : layer.type === 'text' ? Type : SlidersHorizontal;
+    const Icon = layer.type === 'group' ? Folder : layer.type === 'text' ? Type : ADJUSTMENT_ICONS[layer.adjustment.kind];
     thumb = (
-      <span className={styles.iconThumb}>
+      <span className={styles.iconThumb} data-kind={layer.type === 'adjustment' ? 'adjustment' : undefined}>
         <Icon size={16} strokeWidth={1.6} />
       </span>
     );
@@ -223,6 +270,11 @@ const LayerRow = memo(function LayerRow({
         {layer.visible ? <Eye size={15} strokeWidth={1.6} /> : <EyeOff size={15} strokeWidth={1.6} />}
       </button>
       <span className={styles.indent} style={{ width: 4 + depth * 14 }} />
+      {layer.clipped && (
+        <span className={styles.clipArrow} title="Clipped to the layer below" aria-label="Clipped">
+          <CornerLeftDown size={12} strokeWidth={1.8} />
+        </span>
+      )}
       {layer.type === 'group' ? (
         <button
           type="button"
@@ -291,6 +343,7 @@ const LayerRow = memo(function LayerRow({
       ) : (
         <span
           className={styles.name}
+          data-clip-base={clipBase || undefined}
           title={`${layer.name} — double-click to rename`}
           onDoubleClick={(e) => {
             e.stopPropagation();
@@ -311,7 +364,13 @@ export function LayersPanel() {
   const doc = useEditorState((s) => s.doc);
   const listRef = useRef<HTMLDivElement>(null);
   const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [menu, setMenu] = useState<{
+    x: number;
+    y: number;
+    items: ContextMenuItem[];
+    placement?: 'above';
+    label?: string;
+  } | null>(null);
   const dragRef = useRef<{ id: LayerId; startY: number; pointerId: number; dragging: boolean; mode: 'replace' | 'toggle' | 'range' } | null>(null);
 
   const targetFromPoint = useCallback((clientX: number, clientY: number): DropTarget | null => {
@@ -374,7 +433,7 @@ export function LayersPanel() {
     (e: MouseEvent, layer: Layer) => {
       e.preventDefault();
       if (!editor.doc?.selectedLayerIds.includes(layer.id)) selectLayerAction(editor, layer.id);
-      setMenu({ x: e.clientX, y: e.clientY });
+      setMenu({ x: e.clientX, y: e.clientY, items: LAYER_MENU });
     },
     [editor],
   );
@@ -391,27 +450,7 @@ export function LayersPanel() {
 
   const rows = panelOrder(doc.layers);
   const selected = new Set(doc.selectedLayerIds);
-  const menuItems: ContextMenuItem[] = [
-    'layer.duplicate',
-    'layer.delete',
-    '-',
-    'select.loadTransparency',
-    'layer.addMask',
-    'layer.toggleMask',
-    'layer.applyMask',
-    'layer.deleteMask',
-    '-',
-    'layer.group',
-    'layer.ungroup',
-    '-',
-    'edit.freeTransform',
-    'edit.flipH',
-    'edit.flipV',
-    '-',
-    'layer.mergeDown',
-    'layer.mergeVisible',
-    'layer.flatten',
-  ];
+  const bases = clipBases(doc.layers);
 
   return (
     <>
@@ -437,6 +476,7 @@ export function LayersPanel() {
             selected={selected.has(layer.id)}
             active={doc.activeLayerId === layer.id}
             editTarget={doc.editTarget}
+            clipBase={bases.has(layer.id)}
             docWidth={doc.width}
             docHeight={doc.height}
             drop={dropTarget?.id === layer.id ? dropTarget.zone : null}
@@ -453,6 +493,16 @@ export function LayersPanel() {
           size="small"
           disabled={!doc.activeLayerId || Boolean(findLayer(doc.layers, doc.activeLayerId)?.mask)}
           onClick={(e) => runCommand(editor, e.altKey ? 'layer.addMaskHide' : 'layer.addMask')}
+        />
+        <IconButton
+          label="New adjustment layer"
+          icon={<SlidersHorizontal size={14} strokeWidth={1.7} />}
+          size="small"
+          aria-haspopup="menu"
+          onClick={(e) => {
+            const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+            setMenu({ x: r.left, y: r.top - 4, items: ADJUSTMENT_MENU, placement: 'above', label: 'New adjustment layer' });
+          }}
         />
         <IconButton
           label="New group"
@@ -482,7 +532,7 @@ export function LayersPanel() {
           onClick={() => runCommand(editor, 'layer.delete')}
         />
       </div>
-      {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={closeMenu} />}
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} placement={menu.placement} label={menu.label} onClose={closeMenu} />}
     </>
   );
 }

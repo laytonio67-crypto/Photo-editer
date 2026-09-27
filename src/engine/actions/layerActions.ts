@@ -3,7 +3,8 @@ import { createGroupLayer, createPixelLayer } from '../doc/factory';
 import { findLayer, locateLayer, nextLayerName, panelOrder, removeLayer, updateLayer, walkLayers } from '../doc/layerTree';
 import type { DocState, Layer, LayerBlendMode, LayerId, LayerLocks } from '../doc/types';
 import { createId } from '../store';
-import { unionRects, type Rect } from '../geometry';
+import { expandRect, unionRects, type Rect } from '../geometry';
+import { stackMargin } from '../render/AdjustmentRenderer';
 import { copyProgram } from '../render/shaders/layer';
 import {
   addLayer,
@@ -207,7 +208,7 @@ export function canMergeDown(doc: DocState | null): true | string {
   const loc = locateLayer(doc.layers, layer.id)!;
   const below = loc.siblings[loc.index - 1];
   if (!below) return 'There is no layer below to merge into';
-  if (layer.type !== 'pixel' && layer.type !== 'text') return 'Only pixel and text layers can be merged down';
+  if (layer.type === 'group') return 'Groups cannot be merged down';
   if (below.type !== 'pixel') return 'The layer below is not a pixel layer';
   if (!layer.visible || !below.visible) return 'Both layers must be visible';
   if (below.locks.pixels) return 'The layer below is locked';
@@ -216,7 +217,8 @@ export function canMergeDown(doc: DocState | null): true | string {
 
 /**
  * Ctrl+E: composites the active layer onto the pixel layer below. The lower layer's
- * mask is applied; it keeps its own opacity and blend mode.
+ * mask is applied; it keeps its own opacity and blend mode. Merging an adjustment layer
+ * bakes the adjustment into the lower layer's pixels only.
  */
 export function mergeDown(editor: Editor): void {
   const doc = editor.doc;
@@ -225,10 +227,18 @@ export function mergeDown(editor: Editor): void {
   const loc = locateLayer(doc.layers, upper.id)!;
   const lower = loc.siblings[loc.index - 1] as Extract<Layer, { type: 'pixel' }>;
   const lowerRect = surfaceRect(editor, lower)!;
-  const upperRect = surfaceRect(editor, upper) ?? { x: 0, y: 0, width: doc.width, height: doc.height };
-  const region = unionRects(lowerRect, upperRect);
-  const flatLower: Layer = { ...lower, opacity: 1, blendMode: 'normal' };
-  const surface = renderLayersToSurface(editor, doc, [flatLower, upper], region);
+  let region: Rect;
+  if (upper.type === 'adjustment') {
+    // Adjustments only change existing pixels; filters can spread them by their reach.
+    region = expandRect(lowerRect, stackMargin([upper]));
+  } else {
+    region = unionRects(lowerRect, surfaceRect(editor, upper) ?? { x: 0, y: 0, width: doc.width, height: doc.height });
+  }
+  // When both layers clip to a base further down, the upper one lands on the lower one
+  // normally; the merged layer stays clipped to that base.
+  const flatLower: Layer = { ...lower, opacity: 1, blendMode: 'normal', clipped: false };
+  const flatUpper: Layer = lower.clipped ? { ...upper, clipped: false } : upper;
+  const surface = renderLayersToSurface(editor, doc, [flatLower, flatUpper], region);
   editor.commit('Merge Down', (d) => {
     let layers = removeLayer(d.layers, upper.id);
     layers = updateLayer(layers, lower.id, (l) => ({ ...l, surfaceId: surface.id, x: region.x, y: region.y, mask: null }) as Layer);
@@ -246,7 +256,9 @@ export function mergeVisible(editor: Editor): void {
     return;
   }
   const region = { x: 0, y: 0, width: doc.width, height: doc.height };
-  const surface = renderLayersToSurface(editor, doc, visible, region);
+  // Render the full stack: hidden layers draw nothing, and hidden clipping bases must
+  // still hide what is clipped to them.
+  const surface = renderLayersToSurface(editor, doc, doc.layers, region);
   const merged = createPixelLayer({ name: 'Merged', surfaceId: surface.id });
   editor.commit('Merge Visible', (d) => {
     const topIndex = Math.max(...d.layers.map((l, i) => (l.visible ? i : -1)));
@@ -263,7 +275,7 @@ export function flattenImage(editor: Editor): void {
   const doc = editor.doc;
   if (!doc) return;
   const region = { x: 0, y: 0, width: doc.width, height: doc.height };
-  const surface = renderLayersToSurface(editor, doc, doc.layers.filter((l) => l.visible), region);
+  const surface = renderLayersToSurface(editor, doc, doc.layers, region);
   const flat = createPixelLayer({ name: 'Background', surfaceId: surface.id });
   editor.commit('Flatten Image', (d) => ({
     ...d,

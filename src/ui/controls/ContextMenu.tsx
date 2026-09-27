@@ -12,10 +12,14 @@ interface ContextMenuProps {
   y: number;
   items: ContextMenuItem[];
   onClose: () => void;
+  /** 'above' opens the menu upwards from `y` (for buttons at the bottom of a panel). */
+  placement?: 'below' | 'above';
+  /** Accessible name of the menu. */
+  label?: string;
 }
 
 /** Right-click menu. Items are command ids, custom actions, or '-' separators. */
-export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
+export function ContextMenu({ x, y, items, onClose, placement = 'below', label }: ContextMenuProps) {
   const editor = useEditor();
   const state = useEditorState((s) => s);
   const ref = useRef<HTMLDivElement>(null);
@@ -28,10 +32,10 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
     const r = el.getBoundingClientRect();
     setPos({
       left: Math.min(x, window.innerWidth - r.width - 4),
-      top: Math.min(y, window.innerHeight - r.height - 4),
+      top: placement === 'above' ? Math.max(4, y - r.height) : Math.min(y, window.innerHeight - r.height - 4),
     });
     el.focus();
-  }, [x, y]);
+  }, [x, y, placement]);
 
   useEffect(() => {
     const onDown = (e: PointerEvent): void => {
@@ -90,6 +94,7 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
       className={styles.dropdown}
       style={{ ...pos, position: 'fixed', borderRadius: 'var(--radius-md)', zIndex: 95 }}
       role="menu"
+      aria-label={label}
       tabIndex={-1}
       onKeyDown={onKeyDown}
       onContextMenu={(e) => e.preventDefault()}

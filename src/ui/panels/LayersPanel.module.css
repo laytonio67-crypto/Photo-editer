@@ -120,6 +120,25 @@
   font-size: var(--fs-md);
 }
 
+/* Base of a clipping group: underlined like in other pro editors. */
+.name[data-clip-base='true'] {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.clipArrow {
+  display: flex;
+  align-items: center;
+  width: 14px;
+  margin-right: 2px;
+  color: var(--text-2);
+  flex: none;
+}
+
+.iconThumb[data-kind='adjustment'] {
+  color: var(--text-0);
+}
+
 .nameInput {
   flex: 1;
   min-width: 0;
